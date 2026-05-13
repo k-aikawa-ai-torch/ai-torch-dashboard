@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI torch KPIダッシュボード</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sans-serif;background:#f5f5f0;color:#1a1a1a;min-height:100vh}
+#lock-screen{position:fixed;inset:0;background:#1a1a1a;display:flex;align-items:center;justify-content:center;z-index:9999}
+#lock-box{background:#fff;border-radius:12px;padding:36px 40px;width:320px;text-align:center}
+#lock-box h2{font-size:16px;font-weight:500;margin-bottom:6px}
+#lock-box p{font-size:13px;color:#888;margin-bottom:20px}
+#lock-box input{width:100%;height:40px;padding:0 14px;border:1px solid #ddd;border-radius:8px;font-size:15px;text-align:center;letter-spacing:0.1em;margin-bottom:10px}
+#lock-box input:focus{outline:none;border-color:#888}
+#lock-box button{width:100%;height:40px;background:#1a1a1a;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer}
+#lock-error{color:#c00;font-size:12px;margin-top:8px;min-height:18px}
+#app{display:none}
+.header{background:#1a1a1a;color:#fff;padding:12px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.header h1{font-size:15px;font-weight:500}
+.header .badge{background:#3a3a3a;font-size:11px;padding:2px 8px;border-radius:4px;color:#aaa}
+.member-tabs{display:flex;gap:4px;margin-left:auto}
+.member-tab{padding:5px 14px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #444;color:#aaa;background:transparent;transition:all 0.15s}
+.member-tab.active{background:#fff;color:#1a1a1a;border-color:#fff}
+.nav{background:#fff;border-bottom:1px solid #e8e8e8;display:flex;gap:0}
+.nav-btn{padding:10px 20px;font-size:13px;cursor:pointer;border:none;background:transparent;color:#888;border-bottom:2px solid transparent;transition:all 0.15s}
+.nav-btn.active{color:#1a1a1a;border-bottom-color:#1a1a1a;font-weight:500}
+.main{max-width:1000px;margin:0 auto;padding:16px}
+.update-info{font-size:11px;color:#aaa;text-align:right;margin-bottom:12px}
+.section{margin-bottom:20px}
+.section-title{font-size:13px;font-weight:500;color:#888;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em}
+.cards-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:16px}
+.kpi-card{background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:14px 16px}
+.kpi-label{font-size:11px;color:#888;margin-bottom:4px}
+.kpi-value{font-size:24px;font-weight:600;color:#1a1a1a}
+.kpi-sub{font-size:11px;color:#aaa;margin-top:2px}
+.kpi-good{color:#2d6a4f}
+.kpi-warn{color:#c06000}
+.pipeline-table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e8e8e8}
+.pipeline-table th{background:#f9f9f7;font-size:11px;font-weight:500;color:#888;padding:8px 12px;text-align:left;border-bottom:1px solid #e8e8e8}
+.pipeline-table td{font-size:12px;padding:8px 12px;border-bottom:1px solid #f5f5f0;vertical-align:top}
+.pipeline-table tr:last-child td{border-bottom:none}
+.pipeline-table tr:hover td{background:#fafaf8}
+.phase-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500}
+.phase-1{background:#fef3cd;color:#7d5a00}
+.phase-2{background:#d4edda;color:#155724}
+.phase-3{background:#cce5ff;color:#004085}
+.phase-4{background:#f8d7da;color:#721c24}
+.phase-5{background:#e2d9f3;color:#3d2080}
+.phase-6{background:#d1ecf1;color:#0c5460}
+.memo-text{color:#666;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.today-badge{background:#ffebcc;color:#b35a00;padding:1px 6px;border-radius:8px;font-size:10px;margin-left:4px}
+.overdue-badge{background:#feecec;color:#991a1a;padding:1px 6px;border-radius:8px;font-size:10px;margin-left:4px}
+.monthly-table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e8e8e8;font-size:12px}
+.monthly-table th{background:#f9f9f7;font-size:11px;font-weight:500;color:#888;padding:8px 10px;text-align:center;border-bottom:1px solid #e8e8e8}
+.monthly-table th:first-child{text-align:left}
+.monthly-table td{padding:7px 10px;border-bottom:1px solid #f5f5f0;text-align:center}
+.monthly-table td:first-child{text-align:left;font-weight:500}
+.monthly-table tr:last-child td{border-bottom:none}
+.monthly-table .current-month{background:#f0f7ff}
+.funnel-row{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.funnel-item{flex:1;min-width:80px;background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:10px 12px;text-align:center}
+.funnel-num{font-size:20px;font-weight:600;color:#1a1a1a}
+.funnel-label{font-size:10px;color:#888;margin-top:2px}
+.input-row{display:flex;gap:10px;align-items:center;background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:12px 16px;margin-bottom:16px;flex-wrap:wrap}
+.input-row label{font-size:13px;color:#555;white-space:nowrap}
+.input-row input{width:80px;height:32px;padding:0 10px;border:1px solid #ddd;border-radius:6px;font-size:14px;text-align:center}
+.input-row .result{font-size:13px;color:#2d6a4f;font-weight:500}
+.loading{text-align:center;padding:40px;color:#888;font-size:14px}
+.error{text-align:center;padding:40px;color:#c00;font-size:14px}
+</style>
+</head>
+<body>
+<div id="lock-screen">
+  <div id="lock-box">
+    <h2>AI torch Dashboard</h2>
+    <p>パスワードを入力してください</p>
+    <input type="password" id="pw-input" placeholder="••••••••" onkeydown="if(event.key==='Enter')checkPw()">
+    <button onclick="checkPw()">ログイン</button>
+    <div id="lock-error"></div>
+  </div>
+</div>
+
+<div id="app">
+  <div class="header">
+    <h1>AI torch KPIダッシュボード</h1>
+    <span class="badge" id="update-badge">読み込み中…</span>
+    <div class="member-tabs">
+      <button class="member-tab active" onclick="setMember('相川',this)">相川</button>
+      <button class="member-tab" onclick="setMember('永井',this)">永井</button>
+      <button class="member-tab" onclick="setMember('全員',this)">全員</button>
+    </div>
+  </div>
+  <div class="nav">
+    <button class="nav-btn active" onclick="setTab('daily',this)">📅 Daily</button>
+    <button class="nav-btn" onclick="setTab('weekly',this)">📊 Weekly/Monthly</button>
+  </div>
+  <div class="main">
+    <div id="tab-daily"></div>
+    <div id="tab-weekly" style="display:none"></div>
+  </div>
+</div>
+
+<script>
+const PASSWORD = 'aitorch2024';
+const SESSION_KEY = 'aitorch_dash_auth';
+const DATA_URL = 'https://raw.githubusercontent.com/k-aikawa-ai-torch/ai-torch-dashboard/main/dashboard.json';
+
+let DATA = null;
+let currentMember = '相川';
+let currentTab = 'daily';
+let manualRecommend = { '相川': {}, '永井': {} };
+
+// ロック
+function checkPw() {
+  if (document.getElementById('pw-input').value === PASSWORD) {
+    sessionStorage.setItem(SESSION_KEY, '1');
+    document.getElementById('lock-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    loadData();
+  } else {
+    document.getElementById('lock-error').textContent = 'パスワードが違います';
+    document.getElementById('pw-input').value = '';
+  }
+}
+if (sessionStorage.getItem(SESSION_KEY) === '1') {
+  document.getElementById('lock-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  loadData();
+} else {
+  document.getElementById('pw-input').focus();
+}
+
+async function loadData() {
+  try {
+    const res = await fetch(DATA_URL + '?t=' + Date.now());
+    if (!res.ok) throw new Error('fetch failed');
+    DATA = await res.json();
+    const updated = DATA.updated_at ? new Date(DATA.updated_at).toLocaleString('ja-JP') : '';
+    document.getElementById('update-badge').textContent = updated ? '更新: ' + updated : '';
+    render();
+  } catch(e) {
+    document.getElementById('tab-daily').innerHTML = '<div class="error">データの読み込みに失敗しました。</div>';
+  }
+}
+
+function setMember(m, el) {
+  currentMember = m;
+  document.querySelectorAll('.member-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  render();
+}
+
+function setTab(t, el) {
+  currentTab = t;
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-daily').style.display = t === 'daily' ? 'block' : 'none';
+  document.getElementById('tab-weekly').style.display = t === 'weekly' ? 'block' : 'none';
+  render();
+}
+
+function filterByMember(items) {
+  if (currentMember === '全員') return items;
+  return items.filter(i => i.member === currentMember);
+}
+
+function getPhaseClass(phase) {
+  if (!phase) return 'phase-1';
+  if (['返信来た！','初回面談DONE'].includes(phase)) return 'phase-1';
+  if (['求人提案なう','推薦するやでぃ'].includes(phase)) return 'phase-2';
+  if (['選考なう','書類選考','一次面接','最終面接','二次〜面接','カジュアル面談'].includes(phase)) return 'phase-3';
+  if (['内定KITAAA','内定承諾歓喜'].includes(phase)) return 'phase-5';
+  if (['入社後フォローしようね'].includes(phase)) return 'phase-6';
+  return 'phase-1';
+}
+
+function getMonthKey(dateStr) {
+  if (!dateStr) return null;
+  return dateStr.substring(0, 7);
+}
+
+function today() {
+  return new Date().toISOString().substring(0, 10);
+}
+
+function render() {
+  if (!DATA) return;
+  if (currentTab === 'daily') renderDaily();
+  else renderWeekly();
+}
+
+function renderDaily() {
+  const pipeline = filterByMember(DATA.pipeline || []);
+  const active = pipeline.filter(p => p.status === '進行中');
+  const todayStr = today();
+
+  // NextAction順ソート
+  const withDate = active.filter(p => p.next_action_day).sort((a,b) => a.next_action_day.localeCompare(b.next_action_day));
+  const withoutDate = active.filter(p => !p.next_action_day);
+  const sorted = [...withDate, ...withoutDate];
+
+  // フェーズ別集計
+  const phaseCounts = {};
+  active.forEach(p => {
+    const ph = p.phase || '未設定';
+    phaseCounts[ph] = (phaseCounts[ph] || 0) + 1;
+  });
+
+  const phaseOrder = ['返信来た！','初回面談DONE','求人提案なう','推薦するやでぃ','選考なう','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+
+  let html = `<div class="update-info">${currentMember} の進行中: ${active.length}件</div>`;
+
+  // フェーズファネル
+  html += `<div class="section"><div class="section-title">フェーズ別件数（進行中）</div><div class="funnel-row">`;
+  phaseOrder.forEach(ph => {
+    if (phaseCounts[ph]) {
+      html += `<div class="funnel-item"><div class="funnel-num">${phaseCounts[ph]}</div><div class="funnel-label">${ph}</div></div>`;
+    }
+  });
+  html += `</div></div>`;
+
+  // ネクストアクション一覧
+  html += `<div class="section"><div class="section-title">ネクストアクション一覧（進行中）</div>`;
+  html += `<table class="pipeline-table"><thead><tr><th>日程</th><th>求人名</th><th>フェーズ</th><th>メモ</th></tr></thead><tbody>`;
+
+  sorted.forEach(p => {
+    const isToday = p.next_action_day === todayStr;
+    const isOverdue = p.next_action_day && p.next_action_day < todayStr;
+    const dateLabel = p.next_action_day
+      ? `${p.next_action_day}${isToday ? '<span class="today-badge">今日</span>' : ''}${isOverdue ? '<span class="overdue-badge">期限切れ</span>' : ''}`
+      : '<span style="color:#ccc">未設定</span>';
+    const jobName = (p.job || '').replace(/\n/g, ' ').substring(0, 30);
+    const memo = (p.memo || '').replace(/\n/g, ' ');
+    html += `<tr>
+      <td style="white-space:nowrap">${dateLabel}</td>
+      <td>${jobName}</td>
+      <td><span class="phase-badge ${getPhaseClass(p.phase)}">${p.phase || '未設定'}</span></td>
+      <td class="memo-text" title="${memo}">${memo || '-'}</td>
+    </tr>`;
+  });
+  html += `</tbody></table></div>`;
+
+  document.getElementById('tab-daily').innerHTML = html;
+}
+
+function renderWeekly() {
+  const pipeline = filterByMember(DATA.pipeline || []);
+  const todayStr = today();
+  const currentMonth = todayStr.substring(0, 7);
+
+  // 月別集計（作成日時ベース）
+  const months = {};
+  pipeline.forEach(p => {
+    const m = getMonthKey(p.created);
+    if (!m) return;
+    if (!months[m]) months[m] = { interview:0, selection:0, offer:0, accept:0, revenue:0 };
+    const phase = p.phase || '';
+    // 面談数: 初回面談DONE以上
+    if (['初回面談DONE','求人提案なう','推薦するやでぃ','選考なう','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'].includes(phase)) months[m].interview++;
+    // 選考数: 選考なう以上
+    if (['選考なう','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'].includes(phase)) months[m].selection++;
+    // 内定数
+    if (['内定KITAAA','内定承諾歓喜','入社後フォローしようね'].includes(phase)) months[m].offer++;
+    // 承諾数
+    if (['内定承諾歓喜','入社後フォローしようね'].includes(phase)) months[m].accept++;
+  });
+
+  // 売上見込み（進行中のみ）
+  const activePipeline = pipeline.filter(p => p.status === '進行中');
+  let totalRevenue = 0;
+  activePipeline.forEach(p => {
+    // candidatesから売上見込みを取得
+  });
+
+  // 求職者DBから売上見込み集計
+  const candidates = DATA.candidates || [];
+  let revenueSum = 0;
+  candidates.forEach(c => {
+    if (c.status === '進行中' && c.revenue_forecast) {
+      revenueSum += c.revenue_forecast;
+    }
+  });
+
+  // 直近6ヶ月を表示
+  const sortedMonths = Object.keys(months).sort().slice(-8);
+
+  let html = '';
+
+  // 売上見込みサマリー
+  html += `<div class="cards-row">
+    <div class="kpi-card">
+      <div class="kpi-label">進行中パイプライン（件数）</div>
+      <div class="kpi-value">${activePipeline.length}<span style="font-size:14px;color:#888">件</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">今月の新規エントリー</div>
+      <div class="kpi-value">${(months[currentMonth]?.interview || 0)}<span style="font-size:14px;color:#888">件</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">今月の選考中</div>
+      <div class="kpi-value">${(months[currentMonth]?.selection || 0)}<span style="font-size:14px;color:#888">件</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">今月の内定</div>
+      <div class="kpi-value">${(months[currentMonth]?.offer || 0)}<span style="font-size:14px;color:#888">件</span></div>
+    </div>
+  </div>`;
+
+  // 推薦数入力欄
+  const memberKey = currentMember === '全員' ? '全員' : currentMember;
+  const recVal = manualRecommend[memberKey] || {};
+  html += `<div class="section"><div class="section-title">推薦数（手入力）・書類通過率</div>
+  <div id="recommend-inputs">`;
+  sortedMonths.forEach(m => {
+    const rec = recVal[m] || '';
+    const sel = months[m]?.selection || 0;
+    const rate = rec ? Math.round((sel / parseInt(rec)) * 1000) / 10 : null;
+    html += `<div class="input-row">
+      <label>${m}</label>
+      <label>推薦数:</label>
+      <input type="number" min="0" value="${rec}" onchange="setRecommend('${m}',this.value)" placeholder="0">
+      <span>→ 選考移行: ${sel}件</span>
+      ${rate !== null ? `<span class="result">書類通過率: ${rate}%</span>` : ''}
+    </div>`;
+  });
+  html += `</div></div>`;
+
+  // 月別KPIテーブル
+  html += `<div class="section"><div class="section-title">月別KPI（作成日時ベース・近似値）</div>
+  <table class="monthly-table">
+    <thead><tr><th>月</th><th>面談数</th><th>選考数</th><th>内定数</th><th>承諾数</th><th>面談→選考率</th><th>選考→内定率</th></tr></thead>
+    <tbody>`;
+
+  sortedMonths.reverse().forEach(m => {
+    const d = months[m];
+    const isCurrent = m === currentMonth;
+    const interviewToSelection = d.interview > 0 ? Math.round((d.selection / d.interview) * 1000) / 10 : '-';
+    const selectionToOffer = d.selection > 0 ? Math.round((d.offer / d.selection) * 1000) / 10 : '-';
+    html += `<tr class="${isCurrent ? 'current-month' : ''}">
+      <td>${m}${isCurrent ? ' ▶' : ''}</td>
+      <td>${d.interview}</td>
+      <td>${d.selection}</td>
+      <td>${d.offer}</td>
+      <td>${d.accept}</td>
+      <td>${interviewToSelection !== '-' ? interviewToSelection + '%' : '-'}</td>
+      <td>${selectionToOffer !== '-' ? selectionToOffer + '%' : '-'}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table></div>`;
+
+  document.getElementById('tab-weekly').innerHTML = html;
+}
+
+function setRecommend(month, val) {
+  const memberKey = currentMember === '全員' ? '全員' : currentMember;
+  if (!manualRecommend[memberKey]) manualRecommend[memberKey] = {};
+  manualRecommend[memberKey][month] = val;
+  renderWeekly();
+}
+</script>
+</body>
+</html>
