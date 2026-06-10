@@ -33,9 +33,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sa
 .kpi-card{background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:14px 16px}
 .kpi-label{font-size:11px;color:#888;margin-bottom:4px}
 .kpi-value{font-size:24px;font-weight:600;color:#1a1a1a}
-.kpi-sub{font-size:11px;color:#aaa;margin-top:2px}
-.kpi-good{color:#2d6a4f}
-.kpi-warn{color:#c06000}
 .pipeline-table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e8e8e8}
 .pipeline-table th{background:#f9f9f7;font-size:11px;font-weight:500;color:#888;padding:8px 12px;text-align:left;border-bottom:1px solid #e8e8e8}
 .pipeline-table td{font-size:12px;padding:8px 12px;border-bottom:1px solid #f5f5f0;vertical-align:top}
@@ -45,7 +42,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sa
 .phase-1{background:#fef3cd;color:#7d5a00}
 .phase-2{background:#d4edda;color:#155724}
 .phase-3{background:#cce5ff;color:#004085}
-.phase-4{background:#f8d7da;color:#721c24}
 .phase-5{background:#e2d9f3;color:#3d2080}
 .phase-6{background:#d1ecf1;color:#0c5460}
 .memo-text{color:#666;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -62,11 +58,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sa
 .funnel-item{flex:1;min-width:80px;background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:10px 12px;text-align:center}
 .funnel-num{font-size:20px;font-weight:600;color:#1a1a1a}
 .funnel-label{font-size:10px;color:#888;margin-top:2px}
-.input-row{display:flex;gap:10px;align-items:center;background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:12px 16px;margin-bottom:16px;flex-wrap:wrap}
+.input-row{display:flex;gap:10px;align-items:center;background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:12px 16px;margin-bottom:8px;flex-wrap:wrap}
 .input-row label{font-size:13px;color:#555;white-space:nowrap}
 .input-row input{width:80px;height:32px;padding:0 10px;border:1px solid #ddd;border-radius:6px;font-size:14px;text-align:center}
 .input-row .result{font-size:13px;color:#2d6a4f;font-weight:500}
-.loading{text-align:center;padding:40px;color:#888;font-size:14px}
+.empty-state{text-align:center;padding:40px;color:#aaa;font-size:13px;background:#fff;border-radius:10px;border:1px solid #e8e8e8}
 .error{text-align:center;padding:40px;color:#c00;font-size:14px}
 </style>
 </head>
@@ -88,6 +84,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sa
     <div class="member-tabs">
       <button class="member-tab active" onclick="setMember('相川',this)">相川</button>
       <button class="member-tab" onclick="setMember('永井',this)">永井</button>
+      <button class="member-tab" onclick="setMember('會澤',this)">會澤</button>
       <button class="member-tab" onclick="setMember('全員',this)">全員</button>
     </div>
   </div>
@@ -109,9 +106,8 @@ const DATA_URL = 'https://raw.githubusercontent.com/k-aikawa-ai-torch/ai-torch-d
 let DATA = null;
 let currentMember = '相川';
 let currentTab = 'daily';
-let manualRecommend = { '相川': {}, '永井': {} };
+let manualRecommend = {};
 
-// ロック
 function checkPw() {
   if (document.getElementById('pw-input').value === PASSWORD) {
     sessionStorage.setItem(SESSION_KEY, '1');
@@ -160,9 +156,21 @@ function setTab(t, el) {
   render();
 }
 
-function filterByMember(items) {
+function filterPipelineByMember(items) {
   if (currentMember === '全員') return items;
   return items.filter(i => i.member === currentMember);
+}
+
+function getCandidatesByMember() {
+  if (!DATA) return [];
+  if (currentMember === '相川') return DATA.aikawa_candidates || [];
+  if (currentMember === '永井') return DATA.nagai_candidates || [];
+  if (currentMember === '會澤') return DATA.aizawa_candidates || [];
+  return [
+    ...(DATA.aikawa_candidates || []),
+    ...(DATA.nagai_candidates || []),
+    ...(DATA.aizawa_candidates || []),
+  ];
 }
 
 function getPhaseClass(phase) {
@@ -175,14 +183,8 @@ function getPhaseClass(phase) {
   return 'phase-1';
 }
 
-function getMonthKey(dateStr) {
-  if (!dateStr) return null;
-  return dateStr.substring(0, 7);
-}
-
-function today() {
-  return new Date().toISOString().substring(0, 10);
-}
+function getMonthKey(d) { return d ? d.substring(0,7) : null; }
+function today() { return new Date().toISOString().substring(0,10); }
 
 function render() {
   if (!DATA) return;
@@ -191,172 +193,125 @@ function render() {
 }
 
 function renderDaily() {
-  const pipeline = filterByMember(DATA.pipeline || []);
+  const pipeline = filterPipelineByMember(DATA.pipeline || []);
   const active = pipeline.filter(p => p.status === '進行中');
   const todayStr = today();
 
-  // NextAction順ソート
   const withDate = active.filter(p => p.next_action_day).sort((a,b) => a.next_action_day.localeCompare(b.next_action_day));
   const withoutDate = active.filter(p => !p.next_action_day);
   const sorted = [...withDate, ...withoutDate];
 
-  // フェーズ別集計
-  const phaseCounts = {};
-  active.forEach(p => {
-    const ph = p.phase || '未設定';
-    phaseCounts[ph] = (phaseCounts[ph] || 0) + 1;
-  });
-
   const phaseOrder = ['返信来た！','初回面談DONE','求人提案なう','推薦するやでぃ','選考なう','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+  const phaseCounts = {};
+  active.forEach(p => { const ph = p.phase||'未設定'; phaseCounts[ph]=(phaseCounts[ph]||0)+1; });
 
   let html = `<div class="update-info">${currentMember} の進行中: ${active.length}件</div>`;
 
-  // フェーズファネル
-  html += `<div class="section"><div class="section-title">フェーズ別件数（進行中）</div><div class="funnel-row">`;
-  phaseOrder.forEach(ph => {
-    if (phaseCounts[ph]) {
-      html += `<div class="funnel-item"><div class="funnel-num">${phaseCounts[ph]}</div><div class="funnel-label">${ph}</div></div>`;
-    }
-  });
-  html += `</div></div>`;
+  if (phaseOrder.some(ph => phaseCounts[ph])) {
+    html += `<div class="section"><div class="section-title">フェーズ別件数（進行中）</div><div class="funnel-row">`;
+    phaseOrder.forEach(ph => {
+      if (phaseCounts[ph]) html += `<div class="funnel-item"><div class="funnel-num">${phaseCounts[ph]}</div><div class="funnel-label">${ph}</div></div>`;
+    });
+    html += `</div></div>`;
+  }
 
-  // ネクストアクション一覧
   html += `<div class="section"><div class="section-title">ネクストアクション一覧（進行中）</div>`;
-  html += `<table class="pipeline-table"><thead><tr><th>日程</th><th>求人名</th><th>フェーズ</th><th>メモ</th></tr></thead><tbody>`;
-
-  sorted.forEach(p => {
-    const isToday = p.next_action_day === todayStr;
-    const isOverdue = p.next_action_day && p.next_action_day < todayStr;
-    const dateLabel = p.next_action_day
-      ? `${p.next_action_day}${isToday ? '<span class="today-badge">今日</span>' : ''}${isOverdue ? '<span class="overdue-badge">期限切れ</span>' : ''}`
-      : '<span style="color:#ccc">未設定</span>';
-    const jobName = (p.job || '').replace(/\n/g, ' ').substring(0, 30);
-    const memo = (p.memo || '').replace(/\n/g, ' ');
-    html += `<tr>
-      <td style="white-space:nowrap">${dateLabel}</td>
-      <td>${jobName}</td>
-      <td><span class="phase-badge ${getPhaseClass(p.phase)}">${p.phase || '未設定'}</span></td>
-      <td class="memo-text" title="${memo}">${memo || '-'}</td>
-    </tr>`;
-  });
-  html += `</tbody></table></div>`;
-
+  if (sorted.length === 0) {
+    html += `<div class="empty-state">進行中の案件がありません</div>`;
+  } else {
+    html += `<table class="pipeline-table"><thead><tr>`;
+    if (currentMember === '全員') html += `<th>担当</th>`;
+    html += `<th>日程</th><th>求人名</th><th>フェーズ</th><th>メモ</th></tr></thead><tbody>`;
+    sorted.forEach(p => {
+      const isToday = p.next_action_day === todayStr;
+      const isOverdue = p.next_action_day && p.next_action_day < todayStr;
+      const dateLabel = p.next_action_day
+        ? `${p.next_action_day}${isToday?'<span class="today-badge">今日</span>':''}${isOverdue?'<span class="overdue-badge">期限切れ</span>':''}`
+        : '<span style="color:#ccc">未設定</span>';
+      const jobName = (p.job||'').replace(/\n/g,' ').substring(0,30);
+      const memo = (p.memo||'').replace(/\n/g,' ');
+      html += `<tr>`;
+      if (currentMember === '全員') html += `<td style="white-space:nowrap;color:#888">${p.member||'-'}</td>`;
+      html += `<td style="white-space:nowrap">${dateLabel}</td>
+        <td>${jobName}</td>
+        <td><span class="phase-badge ${getPhaseClass(p.phase)}">${p.phase||'未設定'}</span></td>
+        <td class="memo-text" title="${memo}">${memo||'-'}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+  html += `</div>`;
   document.getElementById('tab-daily').innerHTML = html;
 }
 
 function renderWeekly() {
-  const pipeline = filterByMember(DATA.pipeline || []);
+  const pipeline = filterPipelineByMember(DATA.pipeline || []);
   const todayStr = today();
-  const currentMonth = todayStr.substring(0, 7);
+  const currentMonth = todayStr.substring(0,7);
 
-  // 月別集計（作成日時ベース）
   const months = {};
   pipeline.forEach(p => {
     const m = getMonthKey(p.created);
     if (!m) return;
-    if (!months[m]) months[m] = { interview:0, selection:0, offer:0, accept:0, revenue:0 };
+    if (!months[m]) months[m] = {interview:0,selection:0,offer:0,accept:0};
     const phase = p.phase || '';
-    // 面談数: 初回面談DONE以上
     if (['初回面談DONE','求人提案なう','推薦するやでぃ','選考なう','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'].includes(phase)) months[m].interview++;
-    // 選考数: 選考なう以上
     if (['選考なう','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'].includes(phase)) months[m].selection++;
-    // 内定数
     if (['内定KITAAA','内定承諾歓喜','入社後フォローしようね'].includes(phase)) months[m].offer++;
-    // 承諾数
     if (['内定承諾歓喜','入社後フォローしようね'].includes(phase)) months[m].accept++;
   });
 
-  // 売上見込み（進行中のみ）
   const activePipeline = pipeline.filter(p => p.status === '進行中');
-  let totalRevenue = 0;
-  activePipeline.forEach(p => {
-    // candidatesから売上見込みを取得
-  });
-
-  // 求職者DBから売上見込み集計
-  const candidates = DATA.candidates || [];
-  let revenueSum = 0;
-  candidates.forEach(c => {
-    if (c.status === '進行中' && c.revenue_forecast) {
-      revenueSum += c.revenue_forecast;
-    }
-  });
-
-  // 直近6ヶ月を表示
   const sortedMonths = Object.keys(months).sort().slice(-8);
+  if (!manualRecommend[currentMember]) manualRecommend[currentMember] = {};
+  const recVal = manualRecommend[currentMember];
 
-  let html = '';
-
-  // 売上見込みサマリー
-  html += `<div class="cards-row">
-    <div class="kpi-card">
-      <div class="kpi-label">進行中パイプライン（件数）</div>
-      <div class="kpi-value">${activePipeline.length}<span style="font-size:14px;color:#888">件</span></div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">今月の新規エントリー</div>
-      <div class="kpi-value">${(months[currentMonth]?.interview || 0)}<span style="font-size:14px;color:#888">件</span></div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">今月の選考中</div>
-      <div class="kpi-value">${(months[currentMonth]?.selection || 0)}<span style="font-size:14px;color:#888">件</span></div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">今月の内定</div>
-      <div class="kpi-value">${(months[currentMonth]?.offer || 0)}<span style="font-size:14px;color:#888">件</span></div>
-    </div>
+  let html = `<div class="cards-row">
+    <div class="kpi-card"><div class="kpi-label">進行中パイプライン</div><div class="kpi-value">${activePipeline.length}<span style="font-size:14px;color:#888">件</span></div></div>
+    <div class="kpi-card"><div class="kpi-label">今月の新規エントリー</div><div class="kpi-value">${months[currentMonth]?.interview||0}<span style="font-size:14px;color:#888">件</span></div></div>
+    <div class="kpi-card"><div class="kpi-label">今月の選考中</div><div class="kpi-value">${months[currentMonth]?.selection||0}<span style="font-size:14px;color:#888">件</span></div></div>
+    <div class="kpi-card"><div class="kpi-label">今月の内定</div><div class="kpi-value">${months[currentMonth]?.offer||0}<span style="font-size:14px;color:#888">件</span></div></div>
   </div>`;
 
-  // 推薦数入力欄
-  const memberKey = currentMember === '全員' ? '全員' : currentMember;
-  const recVal = manualRecommend[memberKey] || {};
-  html += `<div class="section"><div class="section-title">推薦数（手入力）・書類通過率</div>
-  <div id="recommend-inputs">`;
+  html += `<div class="section"><div class="section-title">推薦数（手入力）・書類通過率</div>`;
   sortedMonths.forEach(m => {
     const rec = recVal[m] || '';
     const sel = months[m]?.selection || 0;
-    const rate = rec ? Math.round((sel / parseInt(rec)) * 1000) / 10 : null;
+    const rate = rec && parseInt(rec) > 0 ? Math.round((sel/parseInt(rec))*1000)/10 : null;
     html += `<div class="input-row">
       <label>${m}</label>
       <label>推薦数:</label>
       <input type="number" min="0" value="${rec}" onchange="setRecommend('${m}',this.value)" placeholder="0">
-      <span>→ 選考移行: ${sel}件</span>
-      ${rate !== null ? `<span class="result">書類通過率: ${rate}%</span>` : ''}
+      <span style="font-size:13px;color:#666">選考移行: ${sel}件</span>
+      ${rate!==null?`<span class="result">書類通過率: ${rate}%</span>`:''}
     </div>`;
   });
-  html += `</div></div>`;
+  html += `</div>`;
 
-  // 月別KPIテーブル
   html += `<div class="section"><div class="section-title">月別KPI（作成日時ベース・近似値）</div>
   <table class="monthly-table">
     <thead><tr><th>月</th><th>面談数</th><th>選考数</th><th>内定数</th><th>承諾数</th><th>面談→選考率</th><th>選考→内定率</th></tr></thead>
     <tbody>`;
 
-  sortedMonths.reverse().forEach(m => {
+  [...sortedMonths].reverse().forEach(m => {
     const d = months[m];
     const isCurrent = m === currentMonth;
-    const interviewToSelection = d.interview > 0 ? Math.round((d.selection / d.interview) * 1000) / 10 : '-';
-    const selectionToOffer = d.selection > 0 ? Math.round((d.offer / d.selection) * 1000) / 10 : '-';
-    html += `<tr class="${isCurrent ? 'current-month' : ''}">
-      <td>${m}${isCurrent ? ' ▶' : ''}</td>
-      <td>${d.interview}</td>
-      <td>${d.selection}</td>
-      <td>${d.offer}</td>
-      <td>${d.accept}</td>
-      <td>${interviewToSelection !== '-' ? interviewToSelection + '%' : '-'}</td>
-      <td>${selectionToOffer !== '-' ? selectionToOffer + '%' : '-'}</td>
+    const i2s = d.interview>0 ? Math.round((d.selection/d.interview)*1000)/10+'%' : '-';
+    const s2o = d.selection>0 ? Math.round((d.offer/d.selection)*1000)/10+'%' : '-';
+    html += `<tr class="${isCurrent?'current-month':''}">
+      <td>${m}${isCurrent?' ▶':''}</td>
+      <td>${d.interview}</td><td>${d.selection}</td><td>${d.offer}</td><td>${d.accept}</td>
+      <td>${i2s}</td><td>${s2o}</td>
     </tr>`;
   });
 
   html += `</tbody></table></div>`;
-
   document.getElementById('tab-weekly').innerHTML = html;
 }
 
 function setRecommend(month, val) {
-  const memberKey = currentMember === '全員' ? '全員' : currentMember;
-  if (!manualRecommend[memberKey]) manualRecommend[memberKey] = {};
-  manualRecommend[memberKey][month] = val;
+  if (!manualRecommend[currentMember]) manualRecommend[currentMember] = {};
+  manualRecommend[currentMember][month] = val;
   renderWeekly();
 }
 </script>
