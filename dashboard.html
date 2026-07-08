@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI torch KPIダッシュボード</title>
+<title>AI torch ダッシュボード</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sans-serif;background:#f5f5f0;color:#1a1a1a;min-height:100vh}
@@ -11,133 +12,216 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sa
 #lock-box{background:#fff;border-radius:12px;padding:36px 40px;width:320px;text-align:center}
 #lock-box h2{font-size:16px;font-weight:500;margin-bottom:6px}
 #lock-box p{font-size:13px;color:#888;margin-bottom:20px}
-#lock-box input{width:100%;height:40px;padding:0 14px;border:1px solid #ddd;border-radius:8px;font-size:15px;text-align:center;letter-spacing:0.1em;margin-bottom:10px}
+#lock-box input{width:100%;height:40px;padding:0 14px;border:1px solid #ddd;border-radius:8px;font-size:15px;margin-bottom:10px}
 #lock-box input:focus{outline:none;border-color:#888}
 #lock-box button{width:100%;height:40px;background:#1a1a1a;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer}
 #lock-error{color:#c00;font-size:12px;margin-top:8px;min-height:18px}
 #app{display:none}
 .header{background:#1a1a1a;color:#fff;padding:12px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .header h1{font-size:15px;font-weight:500}
-.header .badge{background:#3a3a3a;font-size:11px;padding:2px 8px;border-radius:4px;color:#aaa}
-.member-tabs{display:flex;gap:4px;margin-left:auto}
-.member-tab{padding:5px 14px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #444;color:#aaa;background:transparent;transition:all 0.15s}
-.member-tab.active{background:#fff;color:#1a1a1a;border-color:#fff}
-.nav{background:#fff;border-bottom:1px solid #e8e8e8;display:flex;gap:0}
-.nav-btn{padding:10px 20px;font-size:13px;cursor:pointer;border:none;background:transparent;color:#888;border-bottom:2px solid transparent;transition:all 0.15s}
-.nav-btn.active{color:#1a1a1a;border-bottom-color:#1a1a1a;font-weight:500}
-.main{max-width:1000px;margin:0 auto;padding:16px}
-.update-info{font-size:11px;color:#aaa;text-align:right;margin-bottom:12px}
-.section{margin-bottom:20px}
-.section-title{font-size:13px;font-weight:500;color:#888;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em}
-.cards-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:16px}
+.badge{background:#3a3a3a;font-size:11px;padding:2px 8px;border-radius:4px;color:#aaa}
+.month-tabs{display:flex;gap:4px;margin-left:auto}
+.month-tab{padding:5px 14px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #444;color:#aaa;background:transparent}
+.month-tab.active{background:#fff;color:#1a1a1a;border-color:#fff}
+.main{max-width:1100px;margin:0 auto;padding:16px}
+.member-tabs{display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap}
+.member-tab{padding:6px 18px;border-radius:8px;font-size:13px;cursor:pointer;border:1px solid #ddd;color:#888;background:#fff}
+.member-tab.active{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
+.section-title{font-size:13px;font-weight:500;color:#888;margin-bottom:10px;margin-top:20px;text-transform:uppercase;letter-spacing:0.05em}
+/* KPIカード */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:8px}
 .kpi-card{background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:14px 16px}
-.kpi-label{font-size:11px;color:#888;margin-bottom:4px}
+.kpi-label{font-size:11px;color:#888;margin-bottom:6px}
+.kpi-main{display:flex;align-items:baseline;gap:6px}
 .kpi-value{font-size:24px;font-weight:600;color:#1a1a1a}
-.pipeline-table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e8e8e8}
-.pipeline-table th{background:#f9f9f7;font-size:11px;font-weight:500;color:#888;padding:8px 12px;text-align:left;border-bottom:1px solid #e8e8e8}
-.pipeline-table td{font-size:12px;padding:8px 12px;border-bottom:1px solid #f5f5f0;vertical-align:top}
-.pipeline-table tr:last-child td{border-bottom:none}
-.pipeline-table tr:hover td{background:#fafaf8}
-.phase-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500}
-.phase-1{background:#fef3cd;color:#7d5a00}
-.phase-2{background:#d4edda;color:#155724}
-.phase-3{background:#cce5ff;color:#004085}
-.phase-5{background:#e2d9f3;color:#3d2080}
-.phase-6{background:#d1ecf1;color:#0c5460}
-.memo-text{color:#666;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.today-badge{background:#ffebcc;color:#b35a00;padding:1px 6px;border-radius:8px;font-size:10px;margin-left:4px}
-.overdue-badge{background:#feecec;color:#991a1a;padding:1px 6px;border-radius:8px;font-size:10px;margin-left:4px}
-.monthly-table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e8e8e8;font-size:12px}
-.monthly-table th{background:#f9f9f7;font-size:11px;font-weight:500;color:#888;padding:8px 10px;text-align:center;border-bottom:1px solid #e8e8e8}
-.monthly-table th:first-child{text-align:left}
-.monthly-table td{padding:7px 10px;border-bottom:1px solid #f5f5f0;text-align:center}
-.monthly-table td:first-child{text-align:left;font-weight:500}
-.monthly-table tr:last-child td{border-bottom:none}
-.monthly-table .current-month{background:#f0f7ff}
-.funnel-row{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-.funnel-item{flex:1;min-width:80px;background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:10px 12px;text-align:center}
-.funnel-num{font-size:20px;font-weight:600;color:#1a1a1a}
-.funnel-label{font-size:10px;color:#888;margin-top:2px}
-.input-row{display:flex;gap:10px;align-items:center;background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:12px 16px;margin-bottom:8px;flex-wrap:wrap}
-.input-row label{font-size:13px;color:#555;white-space:nowrap}
-.input-row input{width:80px;height:32px;padding:0 10px;border:1px solid #ddd;border-radius:6px;font-size:14px;text-align:center}
-.input-row .result{font-size:13px;color:#2d6a4f;font-weight:500}
-.empty-state{text-align:center;padding:40px;color:#aaa;font-size:13px;background:#fff;border-radius:10px;border:1px solid #e8e8e8}
-.error{text-align:center;padding:40px;color:#c00;font-size:14px}
+.kpi-unit{font-size:12px;color:#888}
+.kpi-target{font-size:11px;color:#aaa;margin-top:4px}
+.kpi-bar-wrap{height:4px;background:#eee;border-radius:2px;margin-top:6px;overflow:hidden}
+.kpi-bar{height:4px;border-radius:2px;transition:width 0.5s}
+.kpi-bar.good{background:#2d6a4f}
+.kpi-bar.warn{background:#e07000}
+.kpi-bar.over{background:#1a7f4e}
+.kpi-rate{font-size:11px;margin-top:3px}
+.kpi-rate.good{color:#2d6a4f}
+.kpi-rate.warn{color:#e07000}
+.kpi-rate.over{color:#1a7f4e}
+/* ファネル */
+.funnel-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:8px}
+.funnel-card{background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:12px;text-align:center}
+.funnel-num{font-size:22px;font-weight:600;color:#1a1a1a}
+.funnel-target{font-size:11px;color:#aaa;margin-top:2px}
+.funnel-label{font-size:11px;color:#888;margin-top:4px}
+.funnel-bar-wrap{height:3px;background:#eee;border-radius:2px;margin-top:6px;overflow:hidden}
+.funnel-bar{height:3px;border-radius:2px;background:#4a7c59}
+/* 全員比較テーブル */
+.compare-table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e8e8e8;font-size:13px}
+.compare-table th{background:#f9f9f7;font-size:11px;font-weight:500;color:#888;padding:8px 14px;text-align:center;border-bottom:1px solid #e8e8e8}
+.compare-table th:first-child{text-align:left}
+.compare-table td{padding:10px 14px;border-bottom:1px solid #f5f5f0;text-align:center}
+.compare-table td:first-child{text-align:left;font-weight:500}
+.compare-table tr:last-child td{border-bottom:none}
+.progress-cell{display:flex;flex-direction:column;gap:3px;align-items:center}
+.mini-bar-wrap{width:80px;height:4px;background:#eee;border-radius:2px;overflow:hidden}
+.mini-bar{height:4px;border-radius:2px}
+.mini-bar.good{background:#2d6a4f}
+.mini-bar.warn{background:#e07000}
+.mini-bar.over{background:#1a7f4e}
+/* 目標編集 */
+#target-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center}
+#target-modal.open{display:flex}
+#target-modal-box{background:#fff;border-radius:12px;width:90%;max-width:500px;padding:24px}
+.modal-header{font-size:15px;font-weight:500;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center}
+.modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:#888}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-group label{font-size:11px;color:#888;font-weight:500}
+.form-group input{height:36px;padding:0 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;background:#fff;width:100%}
+.form-group input:focus{outline:none;border-color:#888}
+.form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;padding-top:16px;border-top:1px solid #f0f0f0}
+.btn-save{padding:0 20px;height:38px;background:#1a1a1a;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer}
+.btn-cancel{padding:0 20px;height:38px;background:#fff;color:#1a1a1a;border:1px solid #ddd;border-radius:8px;font-size:13px;cursor:pointer}
+.save-msg{font-size:12px;color:#2d6a4f;margin-right:auto;align-self:center}
+.edit-target-btn{padding:4px 12px;font-size:12px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;color:#555}
+.loading{text-align:center;padding:40px;color:#888}
+.no-target{background:#fffbf0;border:1px solid #f0e0a0;border-radius:8px;padding:12px 16px;font-size:13px;color:#888;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center}
 </style>
 </head>
 <body>
 <div id="lock-screen">
   <div id="lock-box">
-    <h2>AI torch Dashboard</h2>
-    <p>パスワードを入力してください</p>
-    <input type="password" id="pw-input" placeholder="••••••••" onkeydown="if(event.key==='Enter')checkPw()">
-    <button onclick="checkPw()">ログイン</button>
+    <h2>AI torch ダッシュボード</h2>
+    <p>メールアドレスとパスワードでログイン</p>
+    <input type="email" id="email-input" placeholder="メールアドレス">
+    <input type="password" id="pw-input" placeholder="パスワード" onkeydown="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()">ログイン</button>
     <div id="lock-error"></div>
   </div>
 </div>
 
 <div id="app">
   <div class="header">
-    <h1>AI torch KPIダッシュボード</h1>
-    <span class="badge" id="update-badge">読み込み中…</span>
-    <div class="member-tabs">
-      <button class="member-tab active" onclick="setMember('相川',this)">相川</button>
-      <button class="member-tab" onclick="setMember('永井',this)">永井</button>
-      <button class="member-tab" onclick="setMember('會澤',this)">會澤</button>
-      <button class="member-tab" onclick="setMember('全員',this)">全員</button>
-    </div>
-  </div>
-  <div class="nav">
-    <button class="nav-btn active" onclick="setTab('daily',this)">📅 Daily</button>
-    <button class="nav-btn" onclick="setTab('weekly',this)">📊 Weekly/Monthly</button>
+    <h1>AI torch ダッシュボード</h1>
+    <span class="badge" id="header-badge">読み込み中…</span>
+    <div class="month-tabs" id="month-tabs"></div>
+    <span class="badge" style="cursor:pointer" onclick="doLogout()">ログアウト</span>
   </div>
   <div class="main">
-    <div id="tab-daily"></div>
-    <div id="tab-weekly" style="display:none"></div>
+    <div class="member-tabs">
+      <button class="member-tab active" onclick="setMember('全員',this)">全員</button>
+      <button class="member-tab" onclick="setMember('相川',this)">相川</button>
+      <button class="member-tab" onclick="setMember('永井',this)">永井</button>
+      <button class="member-tab" onclick="setMember('會澤',this)">會澤</button>
+    </div>
+    <div id="dashboard-content"><div class="loading">データを読み込み中…</div></div>
+  </div>
+</div>
+
+<div id="target-modal">
+  <div id="target-modal-box">
+    <div class="modal-header">
+      <span id="target-modal-title">目標を編集</span>
+      <button class="modal-close" onclick="closeTargetModal()">×</button>
+    </div>
+    <div class="form-grid">
+      <div class="form-group"><label>売上目標（円）</label><input id="tf-revenue" type="number"></div>
+      <div class="form-group"><label>面談目標（件）</label><input id="tf-interview" type="number"></div>
+      <div class="form-group"><label>推薦目標（件）</label><input id="tf-recommend" type="number"></div>
+      <div class="form-group"><label>選考目標（件）</label><input id="tf-selection" type="number"></div>
+      <div class="form-group"><label>内定目標（件）</label><input id="tf-offer" type="number"></div>
+      <div class="form-group"><label>承諾目標（件）</label><input id="tf-accept" type="number" step="0.1"></div>
+    </div>
+    <div class="form-actions">
+      <span class="save-msg" id="target-save-msg"></span>
+      <button class="btn-cancel" onclick="closeTargetModal()">キャンセル</button>
+      <button class="btn-save" onclick="saveTarget()">保存</button>
+    </div>
   </div>
 </div>
 
 <script>
-const PASSWORD = 'aitorch2024';
-const SESSION_KEY = 'aitorch_dash_auth';
-const DATA_URL = 'https://raw.githubusercontent.com/k-aikawa-ai-torch/ai-torch-dashboard/main/dashboard.json';
+const SUPABASE_URL = 'https://vqunibhzmvlckqbydgea.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZxdW5pYmh6bXZsY2txYnlkZ2VhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyMzY0NTYsImV4cCI6MjA5NzgxMjQ1Nn0.t9_RIVPY1vrgGmxxFFYXP9uWxT7401ha4Flc9q0_zMA';
 
-let DATA = null;
-let currentMember = '相川';
-let currentTab = 'daily';
-let manualRecommend = {};
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-function checkPw() {
-  if (document.getElementById('pw-input').value === PASSWORD) {
-    sessionStorage.setItem(SESSION_KEY, '1');
-    document.getElementById('lock-screen').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-    loadData();
-  } else {
-    document.getElementById('lock-error').textContent = 'パスワードが違います';
-    document.getElementById('pw-input').value = '';
-  }
+let MEMBERS = [];
+let PIPELINE_DATA = [];
+let CANDIDATE_DATA = [];
+let TARGETS = [];
+let currentMember = '全員';
+let currentMonth = '';
+let editingTargetMemberId = null;
+let editingTargetMonth = null;
+
+const MEMBER_MAP = {'相川':'aikawa_kenta','永井':'nagai_yudai','會澤':'aizawa_yuma'};
+const MEMBER_NAMES = {'aikawa_kenta':'相川','nagai_yudai':'永井','aizawa_yuma':'會澤'};
+
+const INTERVIEW_PHASES = ['初回面談DONE','求人提案なう','推薦するやでぃ','選考なう','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+const RECOMMEND_PHASES = ['書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+const SELECTION_PHASES = ['一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+const OFFER_PHASES = ['内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+const ACCEPT_PHASES = ['内定承諾歓喜','入社後フォローしようね'];
+
+async function doLogin() {
+  const email = document.getElementById('email-input').value;
+  const password = document.getElementById('pw-input').value;
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { document.getElementById('lock-error').textContent = 'メールアドレスまたはパスワードが違います'; return; }
+  showApp();
 }
-if (sessionStorage.getItem(SESSION_KEY) === '1') {
+async function doLogout() { await sb.auth.signOut(); location.reload(); }
+function showApp() {
   document.getElementById('lock-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   loadData();
-} else {
-  document.getElementById('pw-input').focus();
+}
+sb.auth.getSession().then(({ data: { session } }) => { if (session) showApp(); });
+
+function getMonths() {
+  const months = [];
+  const now = new Date();
+  for (let i = -1; i <= 3; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+    const label = (d.getMonth()+1) + '月';
+    months.push({ key, label });
+  }
+  return months;
 }
 
 async function loadData() {
-  try {
-    const res = await fetch(DATA_URL + '?t=' + Date.now());
-    if (!res.ok) throw new Error('fetch failed');
-    DATA = await res.json();
-    const updated = DATA.updated_at ? new Date(DATA.updated_at).toLocaleString('ja-JP') : '';
-    document.getElementById('update-badge').textContent = updated ? '更新: ' + updated : '';
-    render();
-  } catch(e) {
-    document.getElementById('tab-daily').innerHTML = '<div class="error">データの読み込みに失敗しました。</div>';
-  }
+  const months = getMonths();
+  currentMonth = months[1].key; // 今月
+
+  // 月タブ生成
+  const tabsEl = document.getElementById('month-tabs');
+  tabsEl.innerHTML = months.map(m =>
+    '<button class="month-tab' + (m.key === currentMonth ? ' active' : '') + '" onclick="setMonth(\'' + m.key + '\',this)">' + m.label + '</button>'
+  ).join('');
+
+  const [{ data: members }, { data: pipeline }, { data: candidates }, { data: targets }] = await Promise.all([
+    sb.from('members').select('*'),
+    sb.from('pipeline').select('*,members(name,display_name)'),
+    sb.from('candidates').select('*,members(name,display_name)'),
+    sb.from('targets').select('*,members(name,display_name)')
+  ]);
+
+  MEMBERS = members || [];
+  PIPELINE_DATA = pipeline || [];
+  CANDIDATE_DATA = candidates || [];
+  TARGETS = targets || [];
+
+  document.getElementById('header-badge').textContent = currentMonth;
+  render();
+}
+
+function setMonth(m, el) {
+  currentMonth = m;
+  document.querySelectorAll('.month-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('header-badge').textContent = m;
+  render();
 }
 
 function setMember(m, el) {
@@ -147,173 +231,244 @@ function setMember(m, el) {
   render();
 }
 
-function setTab(t, el) {
-  currentTab = t;
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  el.classList.add('active');
-  document.getElementById('tab-daily').style.display = t === 'daily' ? 'block' : 'none';
-  document.getElementById('tab-weekly').style.display = t === 'weekly' ? 'block' : 'none';
-  render();
+function getMonthRange(ym) {
+  const [y, mo] = ym.split('-').map(Number);
+  const start = ym + '-01';
+  const end = new Date(y, mo, 1).toISOString().substring(0,10);
+  return { start, end };
 }
 
-function filterPipelineByMember(items) {
-  if (currentMember === '全員') return items;
-  return items.filter(i => i.member === currentMember);
+function filterByMemberName(items, memberName) {
+  if (!memberName || memberName === '全員') return items;
+  const key = MEMBER_MAP[memberName];
+  return items.filter(i => i.members && i.members.name === key);
 }
 
-function getCandidatesByMember() {
-  if (!DATA) return [];
-  if (currentMember === '相川') return DATA.aikawa_candidates || [];
-  if (currentMember === '永井') return DATA.nagai_candidates || [];
-  if (currentMember === '會澤') return DATA.aizawa_candidates || [];
-  return [
-    ...(DATA.aikawa_candidates || []),
-    ...(DATA.nagai_candidates || []),
-    ...(DATA.aizawa_candidates || []),
-  ];
+function calcActuals(pipelineItems, candidateItems, month) {
+  const { start, end } = getMonthRange(month);
+  // 当月に作成されたpipelineレコードをフェーズで集計
+  const monthPipeline = pipelineItems.filter(p => {
+    const d = (p.created_at || '').substring(0,10);
+    return d >= start && d < end;
+  });
+  const monthCandidates = candidateItems.filter(c => {
+    const d = (c.registered_at || '').substring(0,10);
+    return d >= start && d < end;
+  });
+
+  // 売上見込み：進行中候補者の売上見込み合計
+  const revenueSum = candidateItems
+    .filter(c => c.status === '進行中' && c.revenue_forecast)
+    .reduce((s, c) => s + (c.revenue_forecast || 0), 0);
+
+  // 面談数：当月登録候補者数
+  const interviews = monthCandidates.length;
+
+  // 推薦数：当月作成のpipelineのうち書類選考以上
+  const recommends = monthPipeline.filter(p => RECOMMEND_PHASES.includes(p.phase)).length;
+
+  // 選考数：当月作成のpipelineのうち一次面接以上
+  const selections = monthPipeline.filter(p => SELECTION_PHASES.includes(p.phase)).length;
+
+  // 内定数：当月作成のpipelineのうち内定以上
+  const offers = monthPipeline.filter(p => OFFER_PHASES.includes(p.phase)).length;
+
+  // 承諾数：当月作成のpipelineのうち承諾以上
+  const accepts = monthPipeline.filter(p => ACCEPT_PHASES.includes(p.phase)).length;
+
+  // 進行中フェーズ別
+  const activeByPhase = {};
+  pipelineItems.filter(p => p.status === '進行中').forEach(p => {
+    const ph = p.phase || '未設定';
+    activeByPhase[ph] = (activeByPhase[ph] || 0) + 1;
+  });
+
+  return { revenueSum, interviews, recommends, selections, offers, accepts, activeByPhase };
 }
 
-function getPhaseClass(phase) {
-  if (!phase) return 'phase-1';
-  if (['返信来た！','初回面談DONE'].includes(phase)) return 'phase-1';
-  if (['求人提案なう','推薦するやでぃ'].includes(phase)) return 'phase-2';
-  if (['選考なう','書類選考','一次面接','最終面接','二次〜面接','カジュアル面談'].includes(phase)) return 'phase-3';
-  if (['内定KITAAA','内定承諾歓喜'].includes(phase)) return 'phase-5';
-  if (['入社後フォローしようね'].includes(phase)) return 'phase-6';
-  return 'phase-1';
+function getTarget(memberId, month) {
+  return TARGETS.find(t => t.member_id === memberId && t.year_month === month) || null;
 }
 
-function getMonthKey(d) { return d ? d.substring(0,7) : null; }
-function today() { return new Date().toISOString().substring(0,10); }
+function barClass(rate) {
+  if (rate >= 1) return 'over';
+  if (rate >= 0.7) return 'good';
+  return 'warn';
+}
+
+function fmtRate(rate) {
+  return Math.round(rate * 100) + '%';
+}
+
+function fmtSalary(v) {
+  if (!v) return '-';
+  if (v >= 10000000) return (v/10000000).toFixed(1) + '億';
+  return (v/10000).toFixed(0) + '万';
+}
+
+function renderKpiCard(label, actual, target, unit, isRevenue) {
+  const rate = target ? actual / target : null;
+  const pct = rate !== null ? Math.min(rate * 100, 100) : 0;
+  const cls = rate !== null ? barClass(rate) : 'good';
+  const actualStr = isRevenue ? fmtSalary(actual) : actual;
+  const targetStr = isRevenue ? fmtSalary(target) : (target ? target : '-');
+  return '<div class="kpi-card">' +
+    '<div class="kpi-label">' + label + '</div>' +
+    '<div class="kpi-main"><span class="kpi-value">' + actualStr + '</span><span class="kpi-unit">' + unit + '</span></div>' +
+    (target ? '<div class="kpi-target">目標: ' + targetStr + unit + '</div>' : '<div class="kpi-target">目標未設定</div>') +
+    (target ? '<div class="kpi-bar-wrap"><div class="kpi-bar ' + cls + '" style="width:' + pct + '%"></div></div>' : '') +
+    (target ? '<div class="kpi-rate ' + cls + '">' + fmtRate(rate) + '</div>' : '') +
+    '</div>';
+}
 
 function render() {
-  if (!DATA) return;
-  if (currentTab === 'daily') renderDaily();
-  else renderWeekly();
-}
+  const el = document.getElementById('dashboard-content');
 
-function renderDaily() {
-  const pipeline = filterPipelineByMember(DATA.pipeline || []);
-  const active = pipeline.filter(p => p.status === '進行中');
-  const todayStr = today();
+  if (currentMember !== '全員') {
+    // 個人ビュー
+    const memberKey = MEMBER_MAP[currentMember];
+    const member = MEMBERS.find(m => m.name === memberKey);
+    if (!member) { el.innerHTML = '<div class="loading">メンバーが見つかりません</div>'; return; }
 
-  const withDate = active.filter(p => p.next_action_day).sort((a,b) => a.next_action_day.localeCompare(b.next_action_day));
-  const withoutDate = active.filter(p => !p.next_action_day);
-  const sorted = [...withDate, ...withoutDate];
+    const myPipeline = filterByMemberName(PIPELINE_DATA, currentMember);
+    const myCandidates = filterByMemberName(CANDIDATE_DATA, currentMember);
+    const actuals = calcActuals(myPipeline, myCandidates, currentMonth);
+    const target = getTarget(member.id, currentMonth);
 
-  const phaseOrder = ['返信来た！','初回面談DONE','求人提案なう','推薦するやでぃ','選考なう','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
-  const phaseCounts = {};
-  active.forEach(p => { const ph = p.phase||'未設定'; phaseCounts[ph]=(phaseCounts[ph]||0)+1; });
+    let html = '';
 
-  let html = `<div class="update-info">${currentMember} の進行中: ${active.length}件</div>`;
+    if (!target) {
+      html += '<div class="no-target">📋 ' + currentMonth + ' の目標が未設定です <button class="edit-target-btn" onclick="openTargetModal(\'' + member.id + '\',\'' + currentMonth + '\',null)">目標を設定する</button></div>';
+    } else {
+      html += '<div style="text-align:right;margin-bottom:8px"><button class="edit-target-btn" onclick="openTargetModal(\'' + member.id + '\',\'' + currentMonth + '\',' + JSON.stringify(target).replace(/'/g,"\\'") + ')">✏️ 目標を編集</button></div>';
+    }
 
-  if (phaseOrder.some(ph => phaseCounts[ph])) {
-    html += `<div class="section"><div class="section-title">フェーズ別件数（進行中）</div><div class="funnel-row">`;
-    phaseOrder.forEach(ph => {
-      if (phaseCounts[ph]) html += `<div class="funnel-item"><div class="funnel-num">${phaseCounts[ph]}</div><div class="funnel-label">${ph}</div></div>`;
+    html += '<div class="section-title">売上</div>';
+    html += '<div class="kpi-grid">';
+    html += renderKpiCard('売上見込み', actuals.revenueSum, target ? target.revenue_target : null, '円', true);
+    html += '</div>';
+
+    html += '<div class="section-title">KPI（' + currentMonth + '）</div>';
+    html += '<div class="kpi-grid">';
+    html += renderKpiCard('面談数', actuals.interviews, target ? target.interview_target : null, '件', false);
+    html += renderKpiCard('推薦数', actuals.recommends, target ? target.recommend_target : null, '件', false);
+    html += renderKpiCard('選考数', actuals.selections, target ? target.selection_target : null, '件', false);
+    html += renderKpiCard('内定数', actuals.offers, target ? target.offer_target : null, '件', false);
+    html += renderKpiCard('承諾数', actuals.accepts, target ? target.accept_target : null, '件', false);
+    html += '</div>';
+
+    // 進行中フェーズ別
+    html += '<div class="section-title">進行中フェーズ別件数</div>';
+    const PHASE_ORDER = ['返信来た！','初回面談DONE','求人提案なう','推薦するやでぃ','応募承諾','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+    html += '<div class="funnel-grid">';
+    PHASE_ORDER.forEach(ph => {
+      const cnt = actuals.activeByPhase[ph] || 0;
+      if (cnt === 0) return;
+      html += '<div class="funnel-card"><div class="funnel-num">' + cnt + '</div><div class="funnel-label">' + ph + '</div></div>';
     });
-    html += `</div></div>`;
-  }
+    html += '</div>';
 
-  html += `<div class="section"><div class="section-title">ネクストアクション一覧（進行中）</div>`;
-  if (sorted.length === 0) {
-    html += `<div class="empty-state">進行中の案件がありません</div>`;
+    el.innerHTML = html;
+
   } else {
-    html += `<table class="pipeline-table"><thead><tr>`;
-    if (currentMember === '全員') html += `<th>担当</th>`;
-    html += `<th>日程</th><th>求人名</th><th>フェーズ</th><th>メモ</th></tr></thead><tbody>`;
-    sorted.forEach(p => {
-      const isToday = p.next_action_day === todayStr;
-      const isOverdue = p.next_action_day && p.next_action_day < todayStr;
-      const dateLabel = p.next_action_day
-        ? `${p.next_action_day}${isToday?'<span class="today-badge">今日</span>':''}${isOverdue?'<span class="overdue-badge">期限切れ</span>':''}`
-        : '<span style="color:#ccc">未設定</span>';
-      const jobName = (p.job||'').replace(/\n/g,' ').substring(0,30);
-      const memo = (p.memo||'').replace(/\n/g,' ');
-      html += `<tr>`;
-      if (currentMember === '全員') html += `<td style="white-space:nowrap;color:#888">${p.member||'-'}</td>`;
-      html += `<td style="white-space:nowrap">${dateLabel}</td>
-        <td>${jobName}</td>
-        <td><span class="phase-badge ${getPhaseClass(p.phase)}">${p.phase||'未設定'}</span></td>
-        <td class="memo-text" title="${memo}">${memo||'-'}</td>
-      </tr>`;
+    // 全員比較ビュー
+    let html = '<div class="section-title">メンバー別 売上・KPI比較（' + currentMonth + '）</div>';
+    html += '<table class="compare-table"><thead><tr><th>担当者</th><th>売上見込み</th><th>面談</th><th>推薦</th><th>選考</th><th>内定</th><th>承諾</th></tr></thead><tbody>';
+
+    MEMBERS.forEach(member => {
+      const memberName = MEMBER_NAMES[member.name];
+      const myPipeline = PIPELINE_DATA.filter(p => p.members && p.members.name === member.name);
+      const myCandidates = CANDIDATE_DATA.filter(c => c.members && c.members.name === member.name);
+      const actuals = calcActuals(myPipeline, myCandidates, currentMonth);
+      const target = getTarget(member.id, currentMonth);
+
+      function cell(actual, tgt, isRev) {
+        const rate = tgt ? actual / tgt : null;
+        const pct = rate !== null ? Math.min(rate * 100, 100) : 0;
+        const cls = rate !== null ? barClass(rate) : 'good';
+        const actualStr = isRev ? fmtSalary(actual) : actual;
+        const targetStr = tgt ? (isRev ? fmtSalary(tgt) : tgt) : '-';
+        return '<td><div class="progress-cell"><span>' + actualStr + ' / ' + targetStr + '</span>' +
+          (tgt ? '<div class="mini-bar-wrap"><div class="mini-bar ' + cls + '" style="width:' + pct + '%"></div></div>' : '') +
+          (rate !== null ? '<span style="font-size:10px;color:#888">' + fmtRate(rate) + '</span>' : '') +
+          '</div></td>';
+      }
+
+      html += '<tr>' +
+        '<td><strong>' + member.display_name + '</strong></td>' +
+        cell(actuals.revenueSum, target ? target.revenue_target : null, true) +
+        cell(actuals.interviews, target ? target.interview_target : null, false) +
+        cell(actuals.recommends, target ? target.recommend_target : null, false) +
+        cell(actuals.selections, target ? target.selection_target : null, false) +
+        cell(actuals.offers, target ? target.offer_target : null, false) +
+        cell(actuals.accepts, target ? target.accept_target : null, false) +
+        '</tr>';
     });
-    html += `</tbody></table>`;
+
+    html += '</tbody></table>';
+
+    // 全員の進行中フェーズ別
+    html += '<div class="section-title">全員 進行中フェーズ別件数</div>';
+    const allActive = PIPELINE_DATA.filter(p => p.status === '進行中');
+    const allPhase = {};
+    allActive.forEach(p => { const ph = p.phase||'未設定'; allPhase[ph]=(allPhase[ph]||0)+1; });
+    const PHASE_ORDER2 = ['返信来た！','初回面談DONE','求人提案なう','推薦するやでぃ','応募承諾','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+    html += '<div class="funnel-grid">';
+    PHASE_ORDER2.forEach(ph => {
+      const cnt = allPhase[ph] || 0;
+      if (cnt === 0) return;
+      html += '<div class="funnel-card"><div class="funnel-num">' + cnt + '</div><div class="funnel-label">' + ph + '</div></div>';
+    });
+    html += '</div>';
+
+    el.innerHTML = html;
   }
-  html += `</div>`;
-  document.getElementById('tab-daily').innerHTML = html;
 }
 
-function renderWeekly() {
-  const pipeline = filterPipelineByMember(DATA.pipeline || []);
-  const todayStr = today();
-  const currentMonth = todayStr.substring(0,7);
-
-  const months = {};
-  pipeline.forEach(p => {
-    const m = getMonthKey(p.created);
-    if (!m) return;
-    if (!months[m]) months[m] = {interview:0,selection:0,offer:0,accept:0};
-    const phase = p.phase || '';
-    if (['初回面談DONE','求人提案なう','推薦するやでぃ','選考なう','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'].includes(phase)) months[m].interview++;
-    if (['選考なう','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'].includes(phase)) months[m].selection++;
-    if (['内定KITAAA','内定承諾歓喜','入社後フォローしようね'].includes(phase)) months[m].offer++;
-    if (['内定承諾歓喜','入社後フォローしようね'].includes(phase)) months[m].accept++;
-  });
-
-  const activePipeline = pipeline.filter(p => p.status === '進行中');
-  const sortedMonths = Object.keys(months).sort().slice(-8);
-  if (!manualRecommend[currentMember]) manualRecommend[currentMember] = {};
-  const recVal = manualRecommend[currentMember];
-
-  let html = `<div class="cards-row">
-    <div class="kpi-card"><div class="kpi-label">進行中パイプライン</div><div class="kpi-value">${activePipeline.length}<span style="font-size:14px;color:#888">件</span></div></div>
-    <div class="kpi-card"><div class="kpi-label">今月の新規エントリー</div><div class="kpi-value">${months[currentMonth]?.interview||0}<span style="font-size:14px;color:#888">件</span></div></div>
-    <div class="kpi-card"><div class="kpi-label">今月の選考中</div><div class="kpi-value">${months[currentMonth]?.selection||0}<span style="font-size:14px;color:#888">件</span></div></div>
-    <div class="kpi-card"><div class="kpi-label">今月の内定</div><div class="kpi-value">${months[currentMonth]?.offer||0}<span style="font-size:14px;color:#888">件</span></div></div>
-  </div>`;
-
-  html += `<div class="section"><div class="section-title">推薦数（手入力）・書類通過率</div>`;
-  sortedMonths.forEach(m => {
-    const rec = recVal[m] || '';
-    const sel = months[m]?.selection || 0;
-    const rate = rec && parseInt(rec) > 0 ? Math.round((sel/parseInt(rec))*1000)/10 : null;
-    html += `<div class="input-row">
-      <label>${m}</label>
-      <label>推薦数:</label>
-      <input type="number" min="0" value="${rec}" onchange="setRecommend('${m}',this.value)" placeholder="0">
-      <span style="font-size:13px;color:#666">選考移行: ${sel}件</span>
-      ${rate!==null?`<span class="result">書類通過率: ${rate}%</span>`:''}
-    </div>`;
-  });
-  html += `</div>`;
-
-  html += `<div class="section"><div class="section-title">月別KPI（作成日時ベース・近似値）</div>
-  <table class="monthly-table">
-    <thead><tr><th>月</th><th>面談数</th><th>選考数</th><th>内定数</th><th>承諾数</th><th>面談→選考率</th><th>選考→内定率</th></tr></thead>
-    <tbody>`;
-
-  [...sortedMonths].reverse().forEach(m => {
-    const d = months[m];
-    const isCurrent = m === currentMonth;
-    const i2s = d.interview>0 ? Math.round((d.selection/d.interview)*1000)/10+'%' : '-';
-    const s2o = d.selection>0 ? Math.round((d.offer/d.selection)*1000)/10+'%' : '-';
-    html += `<tr class="${isCurrent?'current-month':''}">
-      <td>${m}${isCurrent?' ▶':''}</td>
-      <td>${d.interview}</td><td>${d.selection}</td><td>${d.offer}</td><td>${d.accept}</td>
-      <td>${i2s}</td><td>${s2o}</td>
-    </tr>`;
-  });
-
-  html += `</tbody></table></div>`;
-  document.getElementById('tab-weekly').innerHTML = html;
+// 目標編集モーダル
+function openTargetModal(memberId, month, target) {
+  editingTargetMemberId = memberId;
+  editingTargetMonth = month;
+  const memberName = MEMBERS.find(m => m.id === memberId)?.display_name || '';
+  document.getElementById('target-modal-title').textContent = memberName + ' ' + month + ' の目標';
+  document.getElementById('tf-revenue').value = target ? target.revenue_target || '' : '';
+  document.getElementById('tf-interview').value = target ? target.interview_target || '' : '';
+  document.getElementById('tf-recommend').value = target ? target.recommend_target || '' : '';
+  document.getElementById('tf-selection').value = target ? target.selection_target || '' : '';
+  document.getElementById('tf-offer').value = target ? target.offer_target || '' : '';
+  document.getElementById('tf-accept').value = target ? target.accept_target || '' : '';
+  document.getElementById('target-save-msg').textContent = '';
+  document.getElementById('target-modal').classList.add('open');
 }
 
-function setRecommend(month, val) {
-  if (!manualRecommend[currentMember]) manualRecommend[currentMember] = {};
-  manualRecommend[currentMember][month] = val;
-  renderWeekly();
+async function saveTarget() {
+  const payload = {
+    member_id: editingTargetMemberId,
+    year_month: editingTargetMonth,
+    revenue_target: document.getElementById('tf-revenue').value ? parseInt(document.getElementById('tf-revenue').value) : null,
+    interview_target: document.getElementById('tf-interview').value ? parseInt(document.getElementById('tf-interview').value) : null,
+    recommend_target: document.getElementById('tf-recommend').value ? parseInt(document.getElementById('tf-recommend').value) : null,
+    selection_target: document.getElementById('tf-selection').value ? parseInt(document.getElementById('tf-selection').value) : null,
+    offer_target: document.getElementById('tf-offer').value ? parseInt(document.getElementById('tf-offer').value) : null,
+    accept_target: document.getElementById('tf-accept').value ? parseFloat(document.getElementById('tf-accept').value) : null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await sb.from('targets').upsert(payload, { onConflict: 'member_id,year_month' });
+  if (error) { alert('保存に失敗しました: ' + error.message); return; }
+
+  document.getElementById('target-save-msg').textContent = '✅ 保存しました';
+  const { data: targets } = await sb.from('targets').select('*,members(name,display_name)');
+  TARGETS = targets || [];
+  setTimeout(function() { closeTargetModal(); render(); }, 600);
 }
+
+function closeTargetModal() {
+  document.getElementById('target-modal').classList.remove('open');
+}
+document.getElementById('target-modal').addEventListener('click', function(e) {
+  if (e.target === document.getElementById('target-modal')) closeTargetModal();
+});
 </script>
 </body>
 </html>
