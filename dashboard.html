@@ -149,6 +149,7 @@ let MEMBERS = [];
 let PIPELINE_DATA = [];
 let CANDIDATE_DATA = [];
 let TARGETS = [];
+let REVENUE_BY_MEMBER = {};
 let currentMember = '全員';
 let currentMonth = '';
 let editingTargetMemberId = null;
@@ -200,17 +201,22 @@ async function loadData() {
     '<button class="month-tab' + (m.key === currentMonth ? ' active' : '') + '" onclick="setMonth(\'' + m.key + '\',this)">' + m.label + '</button>'
   ).join('');
 
-  const [{ data: members }, { data: pipeline }, { data: candidates }, { data: targets }] = await Promise.all([
+  const [{ data: members }, { data: pipeline }, { data: candidates }, { data: targets }, { data: revenueView }] = await Promise.all([
     sb.from('members').select('*'),
     sb.from('pipeline').select('*,members(name,display_name)'),
     sb.from('candidates').select('*,members(name,display_name)'),
-    sb.from('targets').select('*,members(name,display_name)')
+    sb.from('targets').select('*,members(name,display_name)'),
+    sb.from('revenue_forecast_by_member').select('*')
   ]);
 
   MEMBERS = members || [];
   PIPELINE_DATA = pipeline || [];
   CANDIDATE_DATA = candidates || [];
   TARGETS = targets || [];
+  REVENUE_BY_MEMBER = {};
+  (revenueView || []).forEach(function(r) {
+    REVENUE_BY_MEMBER[r.member_id] = Math.round(r.revenue_forecast_sum || 0);
+  });
 
   document.getElementById('header-badge').textContent = currentMonth;
   render();
@@ -256,10 +262,11 @@ function calcActuals(pipelineItems, candidateItems, month) {
     return d >= start && d < end;
   });
 
-  // 売上見込み：進行中候補者の売上見込み合計
-  const revenueSum = candidateItems
-    .filter(c => c.status === '進行中' && c.revenue_forecast)
-    .reduce((s, c) => s + (c.revenue_forecast || 0), 0);
+  // 売上見込み：ビューから取得（カジュアル面談以降・決定ヨミ加味）
+  // candidateItemsに含まれるmember_idに対応する売上見込みを合算
+  // ただし重複を避けるためSet使用
+  const memberIds = [...new Set(candidateItems.map(function(c) { return c.member_id; }).filter(Boolean))];
+  const revenueSum = memberIds.reduce(function(s, mid) { return s + (REVENUE_BY_MEMBER[mid] || 0); }, 0);
 
   // 面談数：当月登録候補者数
   const interviews = monthCandidates.length;
