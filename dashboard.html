@@ -366,7 +366,7 @@ function render() {
 
     // 進行中フェーズ別
     html += '<div class="section-title">進行中フェーズ別件数</div>';
-    const PHASE_ORDER = ['返信来た！','初回面談DONE','求人提案なう','推薦するやでぃ','応募承諾','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+    const PHASE_ORDER = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定','内定承諾'];
     html += '<div class="funnel-grid">';
     PHASE_ORDER.forEach(ph => {
       const cnt = actuals.activeByPhase[ph] || 0;
@@ -419,7 +419,7 @@ function render() {
     const allActive = PIPELINE_DATA.filter(p => p.status === '進行中');
     const allPhase = {};
     allActive.forEach(p => { const ph = p.phase||'未設定'; allPhase[ph]=(allPhase[ph]||0)+1; });
-    const PHASE_ORDER2 = ['返信来た！','初回面談DONE','求人提案なう','推薦するやでぃ','応募承諾','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+    const PHASE_ORDER2 = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定','内定承諾'];
     html += '<div class="funnel-grid">';
     PHASE_ORDER2.forEach(ph => {
       const cnt = allPhase[ph] || 0;
