@@ -211,11 +211,11 @@ let editingTargetMonth = null;
 const MEMBER_MAP = {'相川':'aikawa_kenta','永井':'nagai_yudai','會澤':'aizawa_yuma'};
 const MEMBER_NAMES = {'aikawa_kenta':'相川','nagai_yudai':'永井','aizawa_yuma':'會澤'};
 
-const INTERVIEW_PHASES = ['初回面談DONE','求人提案なう','推薦するやでぃ','選考なう','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
-const SELECTION_PHASES = ['カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA'];
-const OFFER_PHASES = ['内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
-const ACCEPT_PHASES = ['内定承諾歓喜','入社後フォローしようね'];
-const INTERVIEW_SCHEDULED_PHASES = ['一次面接','二次〜面接','最終面接','内定KITAAA'];
+const INTERVIEW_PHASES = ['初回面談DONE','求人提案なう','推薦するやでぃ','選考なう','内定','内定承諾'];
+const SELECTION_PHASES = ['カジュアル面談','一次面接','二次～面接','最終面接','内定'];
+const OFFER_PHASES = ['内定','内定承諾'];
+const ACCEPT_PHASES = ['内定承諾'];
+const INTERVIEW_SCHEDULED_PHASES = ['一次面接','二次～面接','最終面接','内定'];
 
 async function doLogin() {
   const email = document.getElementById('email-input').value;
@@ -369,7 +369,7 @@ function firstOccurrenceMap(pipelineItems, phases) {
   return firstByPipeline;
 }
 
-// 実績ベースの売上：指定した月群のいずれかで初めて内定承諾歓喜以上に到達した候補者のrevenue_forecast合計（候補者単位で重複排除）
+// 実績ベースの売上：指定した月群のいずれかで初めて内定承諾以上に到達した候補者のrevenue_forecast合計（候補者単位で重複排除）
 function sumActualRevenueForMonths(pipelineItems, candidateItems, monthList) {
   const firstByPipeline = firstOccurrenceMap(pipelineItems, ACCEPT_PHASES);
   const countedCandidates = new Set();
@@ -386,7 +386,7 @@ function sumActualRevenueForMonths(pipelineItems, candidateItems, monthList) {
   return sum;
 }
 
-// 承諾数：指定した月群のいずれかで初めて内定承諾歓喜以上に到達したpipeline件数
+// 承諾数：指定した月群のいずれかで初めて内定承諾以上に到達したpipeline件数
 function countAcceptsForMonths(pipelineItems, monthList) {
   const firstByPipeline = firstOccurrenceMap(pipelineItems, ACCEPT_PHASES);
   return Object.values(firstByPipeline).filter(function(d) {
@@ -403,7 +403,7 @@ function sumGrossProfitForMonths(candidateItems, monthList) {
   }, 0);
 }
 
-const FORECAST_ELIGIBLE_PHASES = ['カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+const FORECAST_ELIGIBLE_PHASES = ['カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾'];
 
 // 売上見込み：カジュアル面談以降のフェーズのpipelineがある候補者のrevenue_yomi合計
 // （revenue_yomiは候補者側で 売上見込金額×決定ヨミ% として既に自動計算・保存されている）
@@ -494,7 +494,7 @@ function calcActuals(pipelineItems, candidateItems, month) {
   // ただし重複を避けるためSet使用
   const revenueSum = sumForecastRevenue(pipelineItems, candidateItems);
 
-  // 粗利：当月中に確定（内定承諾歓喜への到達 or 再計算）した候補者のgross_profit合計
+  // 粗利：当月中に確定（内定承諾への到達 or 再計算）した候補者のgross_profit合計
   const grossProfitSum = candidateItems.reduce(function(sum, c) {
     if (c.gross_profit == null || !c.gross_profit_calculated_at) return sum;
     const d = c.gross_profit_calculated_at.substring(0,10);
@@ -703,7 +703,7 @@ function render() {
 
     // 進行中フェーズ別
     html += '<div class="section-title">進行中フェーズ別件数</div>';
-    const PHASE_ORDER = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+    const PHASE_ORDER = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾'];
     html += '<div class="funnel-grid">';
     PHASE_ORDER.forEach(ph => {
       const cnt = actuals.activeByPhase[ph] || 0;
@@ -794,7 +794,7 @@ function render() {
     const allActive = PIPELINE_DATA.filter(p => p.status === '進行中');
     const allPhase = {};
     allActive.forEach(p => { const ph = p.phase||'未設定'; allPhase[ph]=(allPhase[ph]||0)+1; });
-    const PHASE_ORDER2 = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次〜面接','最終面接','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+    const PHASE_ORDER2 = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾'];
     html += '<div class="funnel-grid">';
     PHASE_ORDER2.forEach(ph => {
       const cnt = allPhase[ph] || 0;
