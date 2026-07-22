@@ -625,7 +625,10 @@ function render() {
     const myYearAcceptActual = countAcceptsForMonths(myPipeline, term.yearMonths);
     const myYearAcceptTarget = sumTargetsForMonths(member.id, term.yearMonths, 'accept_target');
 
-    html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">' + currentMember + 'さんの年間進捗</span><span class="sub">' + term.yearLabel + '</span></div>';
+    const nicknamesY = member.nickname ? member.nickname.split(',') : [];
+    const pickedNicknameY = nicknamesY.length ? nicknamesY[Math.floor(Math.random() * nicknamesY.length)] : '';
+    const nameWithNick = currentMember + (pickedNicknameY ? '（' + pickedNicknameY + '）' : '');
+    html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">' + nameWithNick + 'さんの年間進捗</span><span class="sub">' + term.yearLabel + '</span></div>';
     html += '<div class="progress-card" style="margin-bottom:24px">' +
       progressRow('売上', myYearRevenueActual, myYearRevenueTarget, '#0D40D9', true) +
       progressRow('粗利', myYearProfitActual, myYearProfitTarget, '#1baf7a', true) +
@@ -639,10 +642,7 @@ function render() {
     const myRate = myTargetTerm ? myActualTerm / myTargetTerm : 0;
     const myForecastRate = myTargetTerm ? Math.min(myForecastTerm / myTargetTerm, 1) : 0;
 
-    const nicknames = member.nickname ? member.nickname.split(',') : [];
-    const pickedNickname = nicknames.length ? nicknames[Math.floor(Math.random() * nicknames.length)] : '';
-    const labInfo = member.lab_number ? 'Lab Member No.' + String(member.lab_number).padStart(3,'0') + (pickedNickname ? '「' + pickedNickname + '」' : '') : '';
-    html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">' + currentMember + 'さんの今期実績</span><span class="sub">' + term.termLabel + '（' + term.termRangeLabel + '）' + (labInfo ? ' ・ ' + labInfo : '') + '</span></div>';
+    html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">' + nameWithNick + 'さんの今期実績</span><span class="sub">' + term.termLabel + '（' + term.termRangeLabel + '）</span></div>';
     html += '<div class="hero-card" style="margin-bottom:24px">';
     html += '<div class="hero-label">売上達成率（実績ベース）</div>';
     html += '<div class="hero-main"><span class="hero-value">' + Math.round(myRate*100) + '%</span><span class="hero-sub">' + fmtSalary(myActualTerm) + ' / ' + fmtSalary(myTargetTerm) + '</span></div>';
@@ -664,26 +664,19 @@ function render() {
     });
     html += '</div></div>';
 
-    // ===== 達成率ランキング =====
-    const rankData = MEMBERS.map(function(m) {
-      const mPipeline = PIPELINE_DATA.filter(function(p) { return p.members && p.members.name === m.name; });
-      const mCandidates = CANDIDATE_DATA.filter(function(c) { return c.members && c.members.name === m.name; });
-      const actual = sumActualRevenueForMonths(mPipeline, mCandidates, term.months);
-      const tgt = sumTargetsForMonths(m.id, term.months, 'revenue_target');
-      return { name: MEMBER_NAMES[m.name], rate: tgt ? actual/tgt : 0 };
-    }).sort(function(a,b) { return b.rate - a.rate; });
+    // ===== 個人の今月実績 =====
+    const myMonthRevenueActual = sumActualRevenueForMonths(myPipeline, myCandidates, [currentMonth]);
+    const myMonthRevenueTarget = sumTargetsForMonths(member.id, [currentMonth], 'revenue_target');
+    const myMonthProfitActual = sumGrossProfitForMonths(myCandidates, [currentMonth]);
+    const myMonthProfitTarget = sumTargetsForMonths(member.id, [currentMonth], 'gross_profit_target');
+    const myMonthAcceptActual = countAcceptsForMonths(myPipeline, [currentMonth]);
+    const myMonthAcceptTarget = sumTargetsForMonths(member.id, [currentMonth], 'accept_target');
 
-    html += '<div class="sec-header"><span class="bar" style="background:#eb6834"></span><span class="title">達成率ランキング</span><span class="sub">' + term.termLabel + '（' + term.termRangeLabel + '）・実績ベース</span></div>';
-    html += '<div class="ranking-card" style="margin-bottom:24px">';
-    rankData.forEach(function(r, i) {
-      const isFirst = i === 0;
-      html += '<div class="ranking-row">' +
-        '<span class="ranking-rank' + (isFirst ? ' first' : '') + '">' + (i+1) + '</span>' +
-        (isFirst ? '<span class="ranking-photo"><img src="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/assets/ohagi-1.png" alt=""></span>' : '<span style="width:32px;flex-shrink:0"></span>') +
-        '<span class="ranking-name' + (isFirst ? ' first' : '') + '">' + r.name + 'さん</span>' +
-        '<span class="ranking-rate">' + Math.round(r.rate*100) + '%</span></div>';
-    });
-    html += '</div>';
+    html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">' + nameWithNick + 'さんの今月実績</span><span class="sub">' + currentMonth + '</span></div>';
+    html += '<div class="progress-card" style="margin-bottom:24px">' +
+      progressRow('売上', myMonthRevenueActual, myMonthRevenueTarget, '#0D40D9', true) +
+      progressRow('粗利', myMonthProfitActual, myMonthProfitTarget, '#1baf7a', true) +
+      progressRow('内定承諾数', myMonthAcceptActual, myMonthAcceptTarget, '#eb6834', false) + '</div>';
 
     // ===== 面接実施予定 =====
     const scheduledPipeline = myPipeline.filter(function(p) { return p.status === '進行中' && INTERVIEW_SCHEDULED_PHASES.includes(p.phase); });
@@ -806,6 +799,39 @@ function render() {
       progressRow('粗利', compProfit.actualTerm, compProfit.targetTerm, '#1baf7a', true) +
       progressRow('内定承諾数', compAccept.actualTerm, compAccept.targetTerm, '#eb6834', false) + '</div>';
     html += '</div>';
+
+    // ===== ランキング（達成率・売上額） =====
+    const rankData = MEMBERS.map(function(m) {
+      const mPipeline = PIPELINE_DATA.filter(function(p) { return p.members && p.members.name === m.name; });
+      const mCandidates = CANDIDATE_DATA.filter(function(c) { return c.members && c.members.name === m.name; });
+      const actual = sumActualRevenueForMonths(mPipeline, mCandidates, term.months);
+      const tgt = sumTargetsForMonths(m.id, term.months, 'revenue_target');
+      const nicks = m.nickname ? m.nickname.split(',') : [];
+      const nick = nicks.length ? nicks[Math.floor(Math.random() * nicks.length)] : '';
+      return { name: MEMBER_NAMES[m.name], nick: nick, actual: actual, rate: tgt ? actual/tgt : 0 };
+    });
+    const rateRank = rankData.slice().sort(function(a,b) { return b.rate - a.rate; });
+    const revenueRank = rankData.slice().sort(function(a,b) { return b.actual - a.actual; });
+
+    function renderRanking(list, valueFn) {
+      let out = '<div class="ranking-card" style="margin-bottom:24px">';
+      list.forEach(function(r, i) {
+        const isFirst = i === 0;
+        out += '<div class="ranking-row">' +
+          '<span class="ranking-rank' + (isFirst ? ' first' : '') + '">' + (i+1) + '</span>' +
+          (isFirst ? '<span class="ranking-photo"><img src="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/assets/ohagi-1.png" alt=""></span>' : '<span style="width:32px;flex-shrink:0"></span>') +
+          '<span class="ranking-name' + (isFirst ? ' first' : '') + '">' + r.name + 'さん' + (r.nick ? '<span style="font-size:11px;color:#9aa3b8;margin-left:6px">（' + r.nick + '）</span>' : '') + '</span>' +
+          '<span class="ranking-rate">' + valueFn(r) + '</span></div>';
+      });
+      out += '</div>';
+      return out;
+    }
+
+    html += '<div class="sec-header"><span class="bar" style="background:#eb6834"></span><span class="title">達成率ランキング</span><span class="sub">' + term.termLabel + '（' + term.termRangeLabel + '）・実績ベース</span></div>';
+    html += renderRanking(rateRank, function(r) { return Math.round(r.rate*100) + '%'; });
+
+    html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">売上額ランキング</span><span class="sub">' + term.termLabel + '（' + term.termRangeLabel + '）・実績ベース</span></div>';
+    html += renderRanking(revenueRank, function(r) { return fmtSalary(r.actual); });
 
     html += '<div class="section-title">メンバー別 売上・KPI比較（' + currentMonth + '）</div>';
     html += '<table class="compare-table"><thead><tr><th>担当者</th><th>売上見込み</th><th>粗利</th><th>面談</th><th>推薦</th><th>選考</th><th>内定</th><th>承諾</th></tr></thead><tbody>';
