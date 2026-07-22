@@ -213,8 +213,8 @@ const MEMBER_NAMES = {'aikawa_kenta':'相川','nagai_yudai':'永井','aizawa_yum
 
 const INTERVIEW_PHASES = ['初回面談DONE','求人提案なう','推薦するやでぃ','選考なう','内定','内定承諾'];
 const SELECTION_PHASES = ['カジュアル面談','一次面接','二次～面接','最終面接','内定'];
-const OFFER_PHASES = ['内定','内定承諾'];
-const ACCEPT_PHASES = ['内定承諾'];
+const OFFER_PHASES = ['内定','内定承諾','入社待ち','入社済み'];
+const ACCEPT_PHASES = ['内定承諾','入社待ち','入社済み'];
 const INTERVIEW_SCHEDULED_PHASES = ['一次面接','二次～面接','最終面接','内定'];
 
 async function doLogin() {
@@ -403,7 +403,7 @@ function sumGrossProfitForMonths(candidateItems, monthList) {
   }, 0);
 }
 
-const FORECAST_ELIGIBLE_PHASES = ['カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾'];
+const FORECAST_ELIGIBLE_PHASES = ['カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾','入社待ち','入社済み'];
 
 // 売上見込み：カジュアル面談以降のフェーズのpipelineがある候補者のrevenue_yomi合計
 // （revenue_yomiは候補者側で 売上見込金額×決定ヨミ% として既に自動計算・保存されている）
@@ -703,7 +703,7 @@ function render() {
 
     // 進行中フェーズ別
     html += '<div class="section-title">進行中フェーズ別件数</div>';
-    const PHASE_ORDER = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾'];
+    const PHASE_ORDER = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾','入社待ち','入社済み'];
     html += '<div class="funnel-grid">';
     PHASE_ORDER.forEach(ph => {
       const cnt = actuals.activeByPhase[ph] || 0;
@@ -794,7 +794,7 @@ function render() {
     const allActive = PIPELINE_DATA.filter(p => p.status === '進行中');
     const allPhase = {};
     allActive.forEach(p => { const ph = p.phase||'未設定'; allPhase[ph]=(allPhase[ph]||0)+1; });
-    const PHASE_ORDER2 = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾'];
+    const PHASE_ORDER2 = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾','入社待ち','入社済み'];
     html += '<div class="funnel-grid">';
     PHASE_ORDER2.forEach(ph => {
       const cnt = allPhase[ph] || 0;
