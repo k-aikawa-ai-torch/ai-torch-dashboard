@@ -41,6 +41,9 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 .kpi-rate.over{color:#1a7f4e}
 /* 新ダッシュボード上部 */
 .sec-header{display:flex;align-items:center;gap:8px;margin:0 0 10px 2px}
+.section-block{border:1px solid #DEE7F7;border-radius:16px;padding:20px;margin-bottom:24px;background:#FAFBFE}
+.section-block .sec-header:first-child{margin-top:0}
+.section-block > *:last-child{margin-bottom:0 !important}
 .sec-header .bar{width:4px;height:16px;border-radius:2px}
 .sec-header .title{font-size:16px;font-weight:500;color:#14213D}
 .sec-header .sub{font-size:11px;color:#9aa3b8}
@@ -82,6 +85,11 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 .ranking-name{flex:1;font-size:14px;color:#14213D}
 .ranking-name.first{font-weight:500}
 .ranking-rate{font-size:14px;font-weight:500;color:#14213D}
+.target-table{width:100%;border-collapse:collapse;margin-bottom:16px}
+.target-table th{font-size:11px;color:#6B7A99;font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid #DEE7F7}
+.target-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
+.target-table td:first-child{font-size:12px;color:#14213D;white-space:nowrap}
+.target-table input{width:100%;height:30px;padding:0 6px;border:1px solid #DEE7F7;border-radius:4px;font-size:12px}
 /* ファネル */
 .funnel-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:8px}
 .funnel-card{background:#fff;border:1px solid #DEE7F7;border-radius:10px;padding:12px;text-align:center}
@@ -106,7 +114,7 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 /* 目標編集 */
 #target-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center}
 #target-modal.open{display:flex}
-#target-modal-box{background:#fff;border-radius:12px;width:90%;max-width:500px;padding:24px}
+#target-modal-box{background:#fff;border-radius:12px;width:90%;max-width:760px;padding:24px;max-height:85vh;overflow-y:auto}
 .modal-header{font-size:15px;font-weight:500;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center}
 .modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:#6B7A99}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -153,6 +161,7 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
       <span class="badge" id="header-badge">読み込み中…</span>
       <div class="month-tabs" id="month-tabs"></div>
       <select id="month-select" onchange="setMonth(this.value, null)" style="height:32px;padding:0 8px;border:1px solid #DEE7F7;border-radius:6px;background:#fff;font-size:13px;margin-left:8px"></select>
+      <div id="target-btn-area" style="margin-left:auto"></div>
     </div>
   <div class="main">
     <div class="member-tabs">
@@ -172,16 +181,7 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
       <span id="target-modal-title">目標を編集</span>
       <button class="modal-close" onclick="closeTargetModal()">×</button>
     </div>
-    <div class="form-grid">
-      <div class="form-group"><label>売上目標（円）</label><input id="tf-revenue" type="number"></div>
-      <div class="form-group"><label>粗利目標（円）</label><input id="tf-gross-profit" type="number"></div>
-      <div class="form-group"><label>面談目標（件）</label><input id="tf-interview" type="number"></div>
-      <div class="form-group"><label>推薦目標（件）</label><input id="tf-recommend" type="number"></div>
-      <div class="form-group"><label>推薦実績（件・手入力）</label><input id="tf-recommend-actual" type="number"></div>
-      <div class="form-group"><label>選考目標（件）</label><input id="tf-selection" type="number"></div>
-      <div class="form-group"><label>内定目標（件）</label><input id="tf-offer" type="number"></div>
-      <div class="form-group"><label>承諾目標（件）</label><input id="tf-accept" type="number" step="0.1"></div>
-    </div>
+    <div id="target-modal-table"></div>
     <div class="form-actions">
       <span class="save-msg" id="target-save-msg"></span>
       <button class="btn-cancel" onclick="closeTargetModal()">キャンセル</button>
@@ -207,7 +207,7 @@ let MEDIA_FEE_RATES = [];
 let currentMember = '全員';
 let currentMonth = '';
 let editingTargetMemberId = null;
-let editingTargetMonth = null;
+let editingTargetMonths = [];
 
 const MEMBER_MAP = {'相川':'aikawa_kenta','永井':'nagai_yudai','會澤':'aizawa_yuma'};
 const MEMBER_NAMES = {'aikawa_kenta':'相川','nagai_yudai':'永井','aizawa_yuma':'會澤'};
@@ -441,6 +441,23 @@ function sumForecastRevenue(pipelineItems, candidateItems) {
   return sum;
 }
 
+// 粗利の着地予測：売上見込みと同じ対象候補者に、その時点の媒体手数料率を適用した粗利換算額
+function sumForecastGrossProfit(pipelineItems, candidateItems) {
+  const qualifyingCandidateIds = new Set(
+    pipelineItems.filter(function(p) { return p.status === '進行中' && FORECAST_ELIGIBLE_PHASES.includes(p.phase); })
+      .map(function(p) { return p.candidate_id; }).filter(Boolean)
+  );
+  let sum = 0;
+  qualifyingCandidateIds.forEach(function(cid) {
+    const c = candidateItems.find(function(x) { return x.id === cid; }) || CANDIDATE_DATA.find(function(x) { return x.id === cid; });
+    if (c && c.revenue_yomi) {
+      const rate = getCurrentFeeRateForDashboard(c.source);
+      sum += Math.round(c.revenue_yomi * (1 - rate));
+    }
+  });
+  return sum;
+}
+
 function sumTargetsForMonths(memberId, monthList, field) {
   return monthList.reduce(function(sum, m) {
     const t = getTarget(memberId, m);
@@ -619,27 +636,92 @@ function render() {
     const pickedNicknameY = nicknamesY.length ? nicknamesY[Math.floor(Math.random() * nicknamesY.length)] : '';
     const nameWithNick = currentMember + (pickedNicknameY ? '（' + pickedNicknameY + '）' : '');
 
+    // 目標ボタンは右上に配置
+    document.getElementById('target-btn-area').innerHTML = target
+      ? '<button class="edit-target-btn" onclick="openTargetModal(\'' + member.id + '\',\'' + currentMonth + '\')">✏️ ' + term.termLabel + 'の目標を編集</button>'
+      : '<button class="edit-target-btn" onclick="openTargetModal(\'' + member.id + '\',\'' + currentMonth + '\')">📋 ' + term.termLabel + 'の目標を設定する</button>';
+
+    function heroBlock(label, actualRate, actualAmount, targetAmount, forecastRate, forecastAmount, forecastLabel, showMessage, barColor) {
+      const color = barColor || '#0D40D9';
+      let out = '<div class="hero-label">' + label + '達成率（実績ベース）</div>';
+      out += '<div class="hero-main"><span class="hero-value">' + Math.round(actualRate*100) + '%</span><span class="hero-sub">' + fmtSalary(actualAmount) + ' / ' + fmtSalary(targetAmount) + '</span></div>';
+      out += '<div class="hero-bar-wrap"><div class="hero-bar" style="width:' + Math.min(actualRate*100,100) + '%;background:' + color + '"></div></div>';
+      if (showMessage) out += '<div class="motivation-box">' + getMotivationMessage(actualRate) + '</div>';
+      out += '<div class="forecast-label">' + forecastLabel + '</div>';
+      out += '<div class="forecast-main"><span class="forecast-value">' + Math.round(forecastRate*100) + '%</span><span class="hero-sub" style="font-size:12px">' + fmtSalary(forecastAmount) + ' / ' + fmtSalary(targetAmount) + '</span></div>';
+      out += '<div class="forecast-bar-wrap"><div class="forecast-bar" style="width:' + (forecastRate*100) + '%;background:' + color + '"></div></div>';
+      return out;
+    }
+
     let html = '';
 
-    // ===== ①今月実績（達成率＋着地予測） =====
+    // ===== ブロック1：達成率（今期実績・今月実績） =====
+    html += '<div class="section-block">';
+
+    // --- 今期実績 ---
+    const myActualTerm = sumActualRevenueForMonths(myPipeline, myCandidates, term.months);
+    const myTargetTerm = sumTargetsForMonths(member.id, term.months, 'revenue_target');
+    const myForecastTerm = sumForecastRevenue(myPipeline, myCandidates);
+    const myRate = myTargetTerm ? myActualTerm / myTargetTerm : 0;
+    const myForecastRate = myTargetTerm ? Math.min(myForecastTerm / myTargetTerm, 1) : 0;
+    const myProfitActualTerm = sumGrossProfitForMonths(myCandidates, term.months);
+    const myProfitTargetTerm = sumTargetsForMonths(member.id, term.months, 'gross_profit_target');
+    const myProfitForecastTerm = sumForecastGrossProfit(myPipeline, myCandidates);
+    const myProfitRateTerm = myProfitTargetTerm ? myProfitActualTerm / myProfitTargetTerm : 0;
+    const myProfitForecastRateTerm = myProfitTargetTerm ? Math.min(myProfitForecastTerm / myProfitTargetTerm, 1) : 0;
+
+    html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">' + nameWithNick + 'さんの今期実績</span><span class="sub">' + term.termLabel + '（' + term.termRangeLabel + '）</span></div>';
+    html += '<div class="hero-card" style="margin-bottom:16px">';
+    html += heroBlock('売上', myRate, myActualTerm, myTargetTerm, myForecastRate, myForecastTerm, '売上見込み達成率（決定ヨミ含む・進行中案件も加味）', true);
+    html += '<div style="height:1px;background:#f0f0f0;margin:16px 0"></div>';
+    html += heroBlock('粗利', myProfitRateTerm, myProfitActualTerm, myProfitTargetTerm, myProfitForecastRateTerm, myProfitForecastTerm, '粗利見込み達成率（着地予測）', false, '#1baf7a');
+    html += '<div class="month-breakdown">';
+    term.months.forEach(function(m) {
+      const mActual = sumActualRevenueForMonths(myPipeline, myCandidates, [m]);
+      const mTarget = sumTargetsForMonths(member.id, [m], 'revenue_target');
+      const mRate = mTarget ? Math.min(mActual/mTarget, 1) : 0;
+      const isNow = m === currentMonth;
+      const label = parseInt(m.substring(5,7)) + '月';
+      html += '<div class="month-breakdown-item"><div class="m-label">' + label + (isNow ? '<span class="now">●進行中</span>' : '') + '</div>' +
+        '<div class="m-value">' + fmtSalary(mActual) + '</div>' +
+        '<div class="m-bar-wrap"><div class="m-bar" style="width:' + (mRate*100) + '%;background:' + (isNow ? '#1baf7a' : '#85B7EB') + '"></div></div></div>';
+    });
+    html += '</div></div>';
+
+    // --- 今月実績 ---
     const myMonthActual = sumActualRevenueForMonths(myPipeline, myCandidates, [currentMonth]);
     const myMonthTarget = sumTargetsForMonths(member.id, [currentMonth], 'revenue_target');
     const myMonthForecast = sumForecastRevenue(myPipeline, myCandidates);
     const myMonthRate = myMonthTarget ? myMonthActual / myMonthTarget : 0;
     const myMonthForecastRate = myMonthTarget ? Math.min(myMonthForecast / myMonthTarget, 1) : 0;
+    const myProfitActualMonth = sumGrossProfitForMonths(myCandidates, [currentMonth]);
+    const myProfitTargetMonth = sumTargetsForMonths(member.id, [currentMonth], 'gross_profit_target');
+    const myProfitForecastMonth = sumForecastGrossProfit(myPipeline, myCandidates);
+    const myProfitRateMonth = myProfitTargetMonth ? myProfitActualMonth / myProfitTargetMonth : 0;
+    const myProfitForecastRateMonth = myProfitTargetMonth ? Math.min(myProfitForecastMonth / myProfitTargetMonth, 1) : 0;
 
     html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">' + nameWithNick + 'さんの今月実績</span><span class="sub">' + currentMonth + '</span></div>';
-    html += '<div class="hero-card" style="margin-bottom:24px">';
-    html += '<div class="hero-label">売上達成率（実績ベース）</div>';
-    html += '<div class="hero-main"><span class="hero-value">' + Math.round(myMonthRate*100) + '%</span><span class="hero-sub">' + fmtSalary(myMonthActual) + ' / ' + fmtSalary(myMonthTarget) + '</span></div>';
-    html += '<div class="hero-bar-wrap"><div class="hero-bar" style="width:' + Math.min(myMonthRate*100,100) + '%"></div></div>';
-    html += '<div class="motivation-box">' + getMotivationMessage(myMonthRate) + '</div>';
-    html += '<div class="forecast-label">着地予測（決定ヨミ含む・進行中案件も加味）</div>';
-    html += '<div class="forecast-main"><span class="forecast-value">' + Math.round(myMonthForecastRate*100) + '%</span><span class="hero-sub" style="font-size:12px">' + fmtSalary(myMonthForecast) + ' / ' + fmtSalary(myMonthTarget) + '</span></div>';
-    html += '<div class="forecast-bar-wrap"><div class="forecast-bar" style="width:' + (myMonthForecastRate*100) + '%"></div></div>';
+    html += '<div class="hero-card">';
+    html += heroBlock('売上', myMonthRate, myMonthActual, myMonthTarget, myMonthForecastRate, myMonthForecast, '着地予測（決定ヨミ含む・進行中案件も加味）', true);
+    html += '<div style="height:1px;background:#f0f0f0;margin:16px 0"></div>';
+    html += heroBlock('粗利', myProfitRateMonth, myProfitActualMonth, myProfitTargetMonth, myProfitForecastRateMonth, myProfitForecastMonth, '粗利着地予測', false, '#1baf7a');
+    html += '</div>';
     html += '</div>';
 
-    // ===== ②今月やるべきアクション（不足している指標） =====
+    // ===== ブロック2：面接予定・アクション・KPI・フェーズ別 =====
+    html += '<div class="section-block">';
+
+    const scheduledPipeline = myPipeline.filter(function(p) { return p.status === '進行中' && INTERVIEW_SCHEDULED_PHASES.includes(p.phase); });
+    const scheduledCandidateIds = [...new Set(scheduledPipeline.map(function(p) { return p.candidate_id; }).filter(Boolean))];
+    const scheduledCandidates = scheduledCandidateIds.map(function(cid) { return myCandidates.find(function(c) { return c.id === cid; }); }).filter(Boolean);
+
+    html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">今月の面接実施予定</span></div>';
+    html += '<div class="kpi-grid" style="margin-bottom:24px">';
+    html += '<div class="kpi-card"><div class="kpi-label">実施予定件数</div><div class="kpi-main"><span class="kpi-value">' + scheduledPipeline.length + '</span><span class="kpi-unit">件</span></div></div>';
+    html += '<div class="kpi-card"><div class="kpi-label">対象人数</div><div class="kpi-main"><span class="kpi-value">' + scheduledCandidates.length + '</span><span class="kpi-unit">名</span></div></div>';
+    html += '</div>';
+
+    // 今月やるべきアクション
     if (target) {
       const triageItems = [
         { label: '売上見込み', actual: actuals.revenueSum, tgt: target.revenue_target },
@@ -669,65 +751,7 @@ function render() {
       html += '</div>';
     }
 
-    // ===== ③今期実績 =====
-    const myActualTerm = sumActualRevenueForMonths(myPipeline, myCandidates, term.months);
-    const myTargetTerm = sumTargetsForMonths(member.id, term.months, 'revenue_target');
-    const myForecastTerm = sumForecastRevenue(myPipeline, myCandidates);
-    const myRate = myTargetTerm ? myActualTerm / myTargetTerm : 0;
-    const myForecastRate = myTargetTerm ? Math.min(myForecastTerm / myTargetTerm, 1) : 0;
-
-    html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">' + nameWithNick + 'さんの今期実績</span><span class="sub">' + term.termLabel + '（' + term.termRangeLabel + '）</span></div>';
-    html += '<div class="hero-card" style="margin-bottom:24px">';
-    html += '<div class="hero-label">売上達成率（実績ベース）</div>';
-    html += '<div class="hero-main"><span class="hero-value">' + Math.round(myRate*100) + '%</span><span class="hero-sub">' + fmtSalary(myActualTerm) + ' / ' + fmtSalary(myTargetTerm) + '</span></div>';
-    html += '<div class="hero-bar-wrap"><div class="hero-bar" style="width:' + Math.min(myRate*100,100) + '%"></div></div>';
-    html += '<div class="forecast-label">売上見込み達成率（決定ヨミ含む・進行中案件も加味）</div>';
-    html += '<div class="forecast-main"><span class="forecast-value">' + Math.round(myForecastRate*100) + '%</span><span class="hero-sub" style="font-size:12px">' + fmtSalary(myForecastTerm) + ' / ' + fmtSalary(myTargetTerm) + '</span></div>';
-    html += '<div class="forecast-bar-wrap"><div class="forecast-bar" style="width:' + (myForecastRate*100) + '%"></div></div>';
-    html += '<div class="month-breakdown">';
-    term.months.forEach(function(m) {
-      const mActual = sumActualRevenueForMonths(myPipeline, myCandidates, [m]);
-      const mTarget = sumTargetsForMonths(member.id, [m], 'revenue_target');
-      const mRate = mTarget ? Math.min(mActual/mTarget, 1) : 0;
-      const isNow = m === currentMonth;
-      const label = parseInt(m.substring(5,7)) + '月';
-      html += '<div class="month-breakdown-item"><div class="m-label">' + label + (isNow ? '<span class="now">●進行中</span>' : '') + '</div>' +
-        '<div class="m-value">' + fmtSalary(mActual) + '</div>' +
-        '<div class="m-bar-wrap"><div class="m-bar" style="width:' + (mRate*100) + '%;background:' + (isNow ? '#1baf7a' : '#85B7EB') + '"></div></div></div>';
-    });
-    html += '</div></div>';
-
-    // ===== ④面接実施予定 =====
-    const scheduledPipeline = myPipeline.filter(function(p) { return p.status === '進行中' && INTERVIEW_SCHEDULED_PHASES.includes(p.phase); });
-    const scheduledCandidateIds = [...new Set(scheduledPipeline.map(function(p) { return p.candidate_id; }).filter(Boolean))];
-    const scheduledCandidates = scheduledCandidateIds.map(function(cid) { return myCandidates.find(function(c) { return c.id === cid; }); }).filter(Boolean);
-    const scheduledRevenue = scheduledCandidates.reduce(function(s,c) { return s + (c.revenue_yomi||0); }, 0);
-    const scheduledProfit = scheduledCandidates.reduce(function(s,c) {
-      if (c.revenue_yomi == null) return s;
-      const rate = getCurrentFeeRateForDashboard(c.source);
-      return s + Math.round(c.revenue_yomi * (1-rate));
-    }, 0);
-
-    html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">今月の面接実施予定</span></div>';
-    html += '<div class="kpi-grid" style="margin-bottom:24px">';
-    html += '<div class="kpi-card"><div class="kpi-label">実施予定件数</div><div class="kpi-main"><span class="kpi-value">' + scheduledPipeline.length + '</span><span class="kpi-unit">件</span></div></div>';
-    html += '<div class="kpi-card"><div class="kpi-label">対象人数</div><div class="kpi-main"><span class="kpi-value">' + scheduledCandidates.length + '</span><span class="kpi-unit">名</span></div></div>';
-    html += '<div class="kpi-card"><div class="kpi-label">見込み売上</div><div class="kpi-main"><span class="kpi-value">' + fmtSalary(scheduledRevenue) + '</span></div></div>';
-    html += '<div class="kpi-card"><div class="kpi-label">見込み粗利</div><div class="kpi-main"><span class="kpi-value">' + fmtSalary(scheduledProfit) + '</span></div></div>';
-    html += '</div>';
-
-    if (!target) {
-      html += '<div class="no-target">📋 ' + currentMonth + ' の目標が未設定です <button class="edit-target-btn" onclick="openTargetModal(\'' + member.id + '\',\'' + currentMonth + '\')">目標を設定する</button></div>';
-    } else {
-      html += '<div style="text-align:right;margin-bottom:8px"><button class="edit-target-btn" onclick="openTargetModal(\'' + member.id + '\',\'' + currentMonth + '\')">✏️ 目標を編集</button></div>';
-    }
-
-    html += '<div class="section-title">売上</div>';
-    html += '<div class="kpi-grid">';
-    html += renderKpiCard('売上見込み', actuals.revenueSum, target ? target.revenue_target : null, '円', true);
-    html += renderKpiCard('粗利', actuals.grossProfitSum, target ? target.gross_profit_target : null, '円', true);
-    html += '</div>';
-
+    // KPI
     html += '<div class="section-title">KPI（' + currentMonth + '）</div>';
     html += '<div class="kpi-grid">';
     html += renderKpiCard('面談数', actuals.interviews, target ? target.interview_target : null, '件', false);
@@ -747,11 +771,13 @@ function render() {
       html += '<div class="funnel-card"><div class="funnel-num">' + cnt + '</div><div class="funnel-label">' + ph + '</div></div>';
     });
     html += '</div>';
+    html += '</div>';
 
     el.innerHTML = html;
 
   } else {
     // 全員比較ビュー
+    document.getElementById('target-btn-area').innerHTML = '';
     const term = getTermInfo(currentMonth);
 
     function periodMetric(monthList) {
@@ -818,6 +844,7 @@ function render() {
     let html = '';
 
     // ===== 月間セクション =====
+    html += '<div class="section-block">';
     html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">月間</span><span class="sub">' + currentMonth + '</span></div>';
     html += renderProgressCard(currentMonth, periodMetric([currentMonth]));
 
@@ -873,56 +900,73 @@ function render() {
     });
 
     html += '</tbody></table>';
+    html += '</div>';
 
     // ===== 期セクション =====
+    html += '<div class="section-block">';
     html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">' + term.termLabel + '</span><span class="sub">' + term.termRangeLabel + '</span></div>';
     html += renderProgressCard(term.termLabel + '（' + term.termRangeLabel + '）', periodMetric(term.months));
     html += renderRankingPair(term.months, term.termLabel + '（' + term.termRangeLabel + '）');
+    html += '</div>';
 
     // ===== 年間セクション =====
+    html += '<div class="section-block">';
     html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">年間</span><span class="sub">' + term.yearLabel + '</span></div>';
     html += renderProgressCard(term.yearLabel, periodMetric(term.yearMonths));
     html += renderRankingPair(term.yearMonths, term.yearLabel);
+    html += '</div>';
 
     el.innerHTML = html;
   }
 }
 
 // 目標編集モーダル
+const TARGET_FIELDS = [
+  { key: 'revenue_target', label: '売上目標（円）' },
+  { key: 'gross_profit_target', label: '粗利目標（円）' },
+  { key: 'interview_target', label: '面談目標（件）' },
+  { key: 'recommend_target', label: '推薦目標（件）' },
+  { key: 'recommend_actual', label: '推薦実績（件・手入力）' },
+  { key: 'selection_target', label: '選考目標（件）' },
+  { key: 'offer_target', label: '内定目標（件）' },
+  { key: 'accept_target', label: '承諾目標（件）' },
+];
+
 function openTargetModal(memberId, month) {
   editingTargetMemberId = memberId;
-  editingTargetMonth = month;
-  const target = TARGETS.find(t => t.member_id === memberId && t.year_month === month) || null;
+  const term = getTermInfo(month);
+  editingTargetMonths = term.months;
   const memberName = MEMBERS.find(m => m.id === memberId)?.display_name || '';
-  document.getElementById('target-modal-title').textContent = memberName + ' ' + month + ' の目標';
-  document.getElementById('tf-revenue').value = target ? target.revenue_target || '' : '';
-  document.getElementById('tf-gross-profit').value = target ? target.gross_profit_target || '' : '';
-  document.getElementById('tf-interview').value = target ? target.interview_target || '' : '';
-  document.getElementById('tf-recommend').value = target ? target.recommend_target || '' : '';
-  document.getElementById('tf-recommend-actual').value = target ? target.recommend_actual || '' : '';
-  document.getElementById('tf-selection').value = target ? target.selection_target || '' : '';
-  document.getElementById('tf-offer').value = target ? target.offer_target || '' : '';
-  document.getElementById('tf-accept').value = target ? target.accept_target || '' : '';
+  document.getElementById('target-modal-title').textContent = memberName + ' ' + term.termLabel + '（' + term.termRangeLabel + '）の目標';
+
+  let tableHtml = '<table class="target-table"><thead><tr><th>項目</th>' +
+    editingTargetMonths.map(m => '<th>' + m + '</th>').join('') + '</tr></thead><tbody>';
+  TARGET_FIELDS.forEach(function(f) {
+    tableHtml += '<tr><td>' + f.label + '</td>';
+    editingTargetMonths.forEach(function(m, i) {
+      const t = TARGETS.find(t => t.member_id === memberId && t.year_month === m) || null;
+      const val = t ? (t[f.key] != null ? t[f.key] : '') : '';
+      tableHtml += '<td><input id="tf-' + f.key + '-' + i + '" type="number" step="' + (f.key === 'accept_target' ? '0.1' : '1') + '" value="' + val + '"></td>';
+    });
+    tableHtml += '</tr>';
+  });
+  tableHtml += '</tbody></table>';
+  document.getElementById('target-modal-table').innerHTML = tableHtml;
   document.getElementById('target-save-msg').textContent = '';
   document.getElementById('target-modal').classList.add('open');
 }
 
 async function saveTarget() {
-  const payload = {
-    member_id: editingTargetMemberId,
-    year_month: editingTargetMonth,
-    revenue_target: document.getElementById('tf-revenue').value ? parseInt(document.getElementById('tf-revenue').value) : null,
-    gross_profit_target: document.getElementById('tf-gross-profit').value ? parseInt(document.getElementById('tf-gross-profit').value) : null,
-    interview_target: document.getElementById('tf-interview').value ? parseInt(document.getElementById('tf-interview').value) : null,
-    recommend_target: document.getElementById('tf-recommend').value ? parseInt(document.getElementById('tf-recommend').value) : null,
-    recommend_actual: document.getElementById('tf-recommend-actual').value ? parseInt(document.getElementById('tf-recommend-actual').value) : null,
-    selection_target: document.getElementById('tf-selection').value ? parseInt(document.getElementById('tf-selection').value) : null,
-    offer_target: document.getElementById('tf-offer').value ? parseInt(document.getElementById('tf-offer').value) : null,
-    accept_target: document.getElementById('tf-accept').value ? parseFloat(document.getElementById('tf-accept').value) : null,
-    updated_at: new Date().toISOString(),
-  };
+  const payloads = editingTargetMonths.map(function(m, i) {
+    const payload = { member_id: editingTargetMemberId, year_month: m, updated_at: new Date().toISOString() };
+    TARGET_FIELDS.forEach(function(f) {
+      const raw = document.getElementById('tf-' + f.key + '-' + i).value;
+      payload[f.key] = raw ? (f.key === 'accept_target' ? parseFloat(raw) : parseInt(raw)) : null;
+    });
+    return payload;
+  });
 
-  const { error } = await sb.from('targets').upsert(payload, { onConflict: 'member_id,year_month' });
+  const { error } = await sb.from('targets').upsert(payloads, { onConflict: 'member_id,year_month' });
   if (error) { alert('保存に失敗しました: ' + error.message); return; }
 
   document.getElementById('target-save-msg').textContent = '✅ 保存しました';
