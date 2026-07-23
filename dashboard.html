@@ -613,91 +613,33 @@ function render() {
     const myCandidates = filterByMemberName(CANDIDATE_DATA, currentMember);
     const actuals = calcActuals(myPipeline, myCandidates, currentMonth);
     const target = getTarget(member.id, currentMonth);
-
-    let html = '';
-
-    // ===== 個人の年間進捗 =====
     const term = getTermInfo(currentMonth);
-    const myYearRevenueActual = sumActualRevenueForMonths(myPipeline, myCandidates, term.yearMonths);
-    const myYearRevenueTarget = sumTargetsForMonths(member.id, term.yearMonths, 'revenue_target');
-    const myYearProfitActual = sumGrossProfitForMonths(myCandidates, term.yearMonths);
-    const myYearProfitTarget = sumTargetsForMonths(member.id, term.yearMonths, 'gross_profit_target');
-    const myYearAcceptActual = countAcceptsForMonths(myPipeline, term.yearMonths);
-    const myYearAcceptTarget = sumTargetsForMonths(member.id, term.yearMonths, 'accept_target');
 
     const nicknamesY = member.nickname ? member.nickname.split(',') : [];
     const pickedNicknameY = nicknamesY.length ? nicknamesY[Math.floor(Math.random() * nicknamesY.length)] : '';
     const nameWithNick = currentMember + (pickedNicknameY ? '（' + pickedNicknameY + '）' : '');
-    html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">' + nameWithNick + 'さんの年間進捗</span><span class="sub">' + term.yearLabel + '</span></div>';
-    html += '<div class="progress-card" style="margin-bottom:24px">' +
-      progressRow('売上', myYearRevenueActual, myYearRevenueTarget, '#0D40D9', true) +
-      progressRow('粗利', myYearProfitActual, myYearProfitTarget, '#1baf7a', true) +
-      progressRow('内定承諾数', myYearAcceptActual, myYearAcceptTarget, '#eb6834', false) + '</div>';
 
-    // ===== 個人の今期実績 =====
+    let html = '';
 
-    const myActualTerm = sumActualRevenueForMonths(myPipeline, myCandidates, term.months);
-    const myTargetTerm = sumTargetsForMonths(member.id, term.months, 'revenue_target');
-    const myForecastTerm = sumForecastRevenue(myPipeline, myCandidates);
-    const myRate = myTargetTerm ? myActualTerm / myTargetTerm : 0;
-    const myForecastRate = myTargetTerm ? Math.min(myForecastTerm / myTargetTerm, 1) : 0;
+    // ===== ①今月実績（達成率＋着地予測） =====
+    const myMonthActual = sumActualRevenueForMonths(myPipeline, myCandidates, [currentMonth]);
+    const myMonthTarget = sumTargetsForMonths(member.id, [currentMonth], 'revenue_target');
+    const myMonthForecast = sumForecastRevenue(myPipeline, myCandidates);
+    const myMonthRate = myMonthTarget ? myMonthActual / myMonthTarget : 0;
+    const myMonthForecastRate = myMonthTarget ? Math.min(myMonthForecast / myMonthTarget, 1) : 0;
 
-    html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">' + nameWithNick + 'さんの今期実績</span><span class="sub">' + term.termLabel + '（' + term.termRangeLabel + '）</span></div>';
+    html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">' + nameWithNick + 'さんの今月実績</span><span class="sub">' + currentMonth + '</span></div>';
     html += '<div class="hero-card" style="margin-bottom:24px">';
     html += '<div class="hero-label">売上達成率（実績ベース）</div>';
-    html += '<div class="hero-main"><span class="hero-value">' + Math.round(myRate*100) + '%</span><span class="hero-sub">' + fmtSalary(myActualTerm) + ' / ' + fmtSalary(myTargetTerm) + '</span></div>';
-    html += '<div class="hero-bar-wrap"><div class="hero-bar" style="width:' + Math.min(myRate*100,100) + '%"></div></div>';
-    html += '<div class="motivation-box">' + getMotivationMessage(myRate) + '</div>';
-    html += '<div class="forecast-label">売上見込み達成率（決定ヨミ含む・進行中案件も加味）</div>';
-    html += '<div class="forecast-main"><span class="forecast-value">' + Math.round(myForecastRate*100) + '%</span><span class="hero-sub" style="font-size:12px">' + fmtSalary(myForecastTerm) + ' / ' + fmtSalary(myTargetTerm) + '</span></div>';
-    html += '<div class="forecast-bar-wrap"><div class="forecast-bar" style="width:' + (myForecastRate*100) + '%"></div></div>';
-    html += '<div class="month-breakdown">';
-    term.months.forEach(function(m) {
-      const mActual = sumActualRevenueForMonths(myPipeline, myCandidates, [m]);
-      const mTarget = sumTargetsForMonths(member.id, [m], 'revenue_target');
-      const mRate = mTarget ? Math.min(mActual/mTarget, 1) : 0;
-      const isNow = m === currentMonth;
-      const label = parseInt(m.substring(5,7)) + '月';
-      html += '<div class="month-breakdown-item"><div class="m-label">' + label + (isNow ? '<span class="now">●進行中</span>' : '') + '</div>' +
-        '<div class="m-value">' + fmtSalary(mActual) + '</div>' +
-        '<div class="m-bar-wrap"><div class="m-bar" style="width:' + (mRate*100) + '%;background:' + (isNow ? '#1baf7a' : '#85B7EB') + '"></div></div></div>';
-    });
-    html += '</div></div>';
-
-    // ===== 個人の今月実績 =====
-    const myMonthRevenueActual = sumActualRevenueForMonths(myPipeline, myCandidates, [currentMonth]);
-    const myMonthRevenueTarget = sumTargetsForMonths(member.id, [currentMonth], 'revenue_target');
-    const myMonthProfitActual = sumGrossProfitForMonths(myCandidates, [currentMonth]);
-    const myMonthProfitTarget = sumTargetsForMonths(member.id, [currentMonth], 'gross_profit_target');
-    const myMonthAcceptActual = countAcceptsForMonths(myPipeline, [currentMonth]);
-    const myMonthAcceptTarget = sumTargetsForMonths(member.id, [currentMonth], 'accept_target');
-
-    html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">' + nameWithNick + 'さんの今月実績</span><span class="sub">' + currentMonth + '</span></div>';
-    html += '<div class="progress-card" style="margin-bottom:24px">' +
-      progressRow('売上', myMonthRevenueActual, myMonthRevenueTarget, '#0D40D9', true) +
-      progressRow('粗利', myMonthProfitActual, myMonthProfitTarget, '#1baf7a', true) +
-      progressRow('内定承諾数', myMonthAcceptActual, myMonthAcceptTarget, '#eb6834', false) + '</div>';
-
-    // ===== 面接実施予定 =====
-    const scheduledPipeline = myPipeline.filter(function(p) { return p.status === '進行中' && INTERVIEW_SCHEDULED_PHASES.includes(p.phase); });
-    const scheduledCandidateIds = [...new Set(scheduledPipeline.map(function(p) { return p.candidate_id; }).filter(Boolean))];
-    const scheduledCandidates = scheduledCandidateIds.map(function(cid) { return myCandidates.find(function(c) { return c.id === cid; }); }).filter(Boolean);
-    const scheduledRevenue = scheduledCandidates.reduce(function(s,c) { return s + (c.revenue_yomi||0); }, 0);
-    const scheduledProfit = scheduledCandidates.reduce(function(s,c) {
-      if (c.revenue_yomi == null) return s;
-      const rate = getCurrentFeeRateForDashboard(c.source);
-      return s + Math.round(c.revenue_yomi * (1-rate));
-    }, 0);
-
-    html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">今月の面接実施予定</span></div>';
-    html += '<div class="kpi-grid" style="margin-bottom:24px">';
-    html += '<div class="kpi-card"><div class="kpi-label">実施予定件数</div><div class="kpi-main"><span class="kpi-value">' + scheduledPipeline.length + '</span><span class="kpi-unit">件</span></div></div>';
-    html += '<div class="kpi-card"><div class="kpi-label">対象人数</div><div class="kpi-main"><span class="kpi-value">' + scheduledCandidates.length + '</span><span class="kpi-unit">名</span></div></div>';
-    html += '<div class="kpi-card"><div class="kpi-label">見込み売上</div><div class="kpi-main"><span class="kpi-value">' + fmtSalary(scheduledRevenue) + '</span></div></div>';
-    html += '<div class="kpi-card"><div class="kpi-label">見込み粗利</div><div class="kpi-main"><span class="kpi-value">' + fmtSalary(scheduledProfit) + '</span></div></div>';
+    html += '<div class="hero-main"><span class="hero-value">' + Math.round(myMonthRate*100) + '%</span><span class="hero-sub">' + fmtSalary(myMonthActual) + ' / ' + fmtSalary(myMonthTarget) + '</span></div>';
+    html += '<div class="hero-bar-wrap"><div class="hero-bar" style="width:' + Math.min(myMonthRate*100,100) + '%"></div></div>';
+    html += '<div class="motivation-box">' + getMotivationMessage(myMonthRate) + '</div>';
+    html += '<div class="forecast-label">着地予測（決定ヨミ含む・進行中案件も加味）</div>';
+    html += '<div class="forecast-main"><span class="forecast-value">' + Math.round(myMonthForecastRate*100) + '%</span><span class="hero-sub" style="font-size:12px">' + fmtSalary(myMonthForecast) + ' / ' + fmtSalary(myMonthTarget) + '</span></div>';
+    html += '<div class="forecast-bar-wrap"><div class="forecast-bar" style="width:' + (myMonthForecastRate*100) + '%"></div></div>';
     html += '</div>';
 
-    // ===== 達成率トリアージ（クリティカル/微妙/いい） =====
+    // ===== ②今月やるべきアクション（不足している指標） =====
     if (target) {
       const triageItems = [
         { label: '売上見込み', actual: actuals.revenueSum, tgt: target.revenue_target },
@@ -719,13 +661,60 @@ function render() {
         return items.map(function(x) { return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid #f0f0f0"><span>' + x.label + '</span><span style="font-weight:500">' + Math.round(x.rate*100) + '%</span></div>'; }).join('');
       }
 
-      html += '<div class="sec-header"><span class="bar" style="background:#e24b4a"></span><span class="title">達成率トリアージ</span><span class="sub">' + currentMonth + '・目標に対する各指標の状況</span></div>';
+      html += '<div class="sec-header"><span class="bar" style="background:#e24b4a"></span><span class="title">今月やるべきアクション</span><span class="sub">' + currentMonth + '・目標に対して不足している指標</span></div>';
       html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">';
       html += '<div class="progress-card"><div style="font-size:12px;color:#A32D2D;margin-bottom:4px;font-weight:500">🔴 クリティカル（50%未満）</div>' + triageList(critical) + '</div>';
       html += '<div class="progress-card"><div style="font-size:12px;color:#854F0B;margin-bottom:4px;font-weight:500">🟡 微妙（50〜90%）</div>' + triageList(iffy) + '</div>';
       html += '<div class="progress-card"><div style="font-size:12px;color:#3B6D11;margin-bottom:4px;font-weight:500">🟢 いい調子（90%以上）</div>' + triageList(good) + '</div>';
       html += '</div>';
     }
+
+    // ===== ③今期実績 =====
+    const myActualTerm = sumActualRevenueForMonths(myPipeline, myCandidates, term.months);
+    const myTargetTerm = sumTargetsForMonths(member.id, term.months, 'revenue_target');
+    const myForecastTerm = sumForecastRevenue(myPipeline, myCandidates);
+    const myRate = myTargetTerm ? myActualTerm / myTargetTerm : 0;
+    const myForecastRate = myTargetTerm ? Math.min(myForecastTerm / myTargetTerm, 1) : 0;
+
+    html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">' + nameWithNick + 'さんの今期実績</span><span class="sub">' + term.termLabel + '（' + term.termRangeLabel + '）</span></div>';
+    html += '<div class="hero-card" style="margin-bottom:24px">';
+    html += '<div class="hero-label">売上達成率（実績ベース）</div>';
+    html += '<div class="hero-main"><span class="hero-value">' + Math.round(myRate*100) + '%</span><span class="hero-sub">' + fmtSalary(myActualTerm) + ' / ' + fmtSalary(myTargetTerm) + '</span></div>';
+    html += '<div class="hero-bar-wrap"><div class="hero-bar" style="width:' + Math.min(myRate*100,100) + '%"></div></div>';
+    html += '<div class="forecast-label">売上見込み達成率（決定ヨミ含む・進行中案件も加味）</div>';
+    html += '<div class="forecast-main"><span class="forecast-value">' + Math.round(myForecastRate*100) + '%</span><span class="hero-sub" style="font-size:12px">' + fmtSalary(myForecastTerm) + ' / ' + fmtSalary(myTargetTerm) + '</span></div>';
+    html += '<div class="forecast-bar-wrap"><div class="forecast-bar" style="width:' + (myForecastRate*100) + '%"></div></div>';
+    html += '<div class="month-breakdown">';
+    term.months.forEach(function(m) {
+      const mActual = sumActualRevenueForMonths(myPipeline, myCandidates, [m]);
+      const mTarget = sumTargetsForMonths(member.id, [m], 'revenue_target');
+      const mRate = mTarget ? Math.min(mActual/mTarget, 1) : 0;
+      const isNow = m === currentMonth;
+      const label = parseInt(m.substring(5,7)) + '月';
+      html += '<div class="month-breakdown-item"><div class="m-label">' + label + (isNow ? '<span class="now">●進行中</span>' : '') + '</div>' +
+        '<div class="m-value">' + fmtSalary(mActual) + '</div>' +
+        '<div class="m-bar-wrap"><div class="m-bar" style="width:' + (mRate*100) + '%;background:' + (isNow ? '#1baf7a' : '#85B7EB') + '"></div></div></div>';
+    });
+    html += '</div></div>';
+
+    // ===== ④面接実施予定 =====
+    const scheduledPipeline = myPipeline.filter(function(p) { return p.status === '進行中' && INTERVIEW_SCHEDULED_PHASES.includes(p.phase); });
+    const scheduledCandidateIds = [...new Set(scheduledPipeline.map(function(p) { return p.candidate_id; }).filter(Boolean))];
+    const scheduledCandidates = scheduledCandidateIds.map(function(cid) { return myCandidates.find(function(c) { return c.id === cid; }); }).filter(Boolean);
+    const scheduledRevenue = scheduledCandidates.reduce(function(s,c) { return s + (c.revenue_yomi||0); }, 0);
+    const scheduledProfit = scheduledCandidates.reduce(function(s,c) {
+      if (c.revenue_yomi == null) return s;
+      const rate = getCurrentFeeRateForDashboard(c.source);
+      return s + Math.round(c.revenue_yomi * (1-rate));
+    }, 0);
+
+    html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">今月の面接実施予定</span></div>';
+    html += '<div class="kpi-grid" style="margin-bottom:24px">';
+    html += '<div class="kpi-card"><div class="kpi-label">実施予定件数</div><div class="kpi-main"><span class="kpi-value">' + scheduledPipeline.length + '</span><span class="kpi-unit">件</span></div></div>';
+    html += '<div class="kpi-card"><div class="kpi-label">対象人数</div><div class="kpi-main"><span class="kpi-value">' + scheduledCandidates.length + '</span><span class="kpi-unit">名</span></div></div>';
+    html += '<div class="kpi-card"><div class="kpi-label">見込み売上</div><div class="kpi-main"><span class="kpi-value">' + fmtSalary(scheduledRevenue) + '</span></div></div>';
+    html += '<div class="kpi-card"><div class="kpi-label">見込み粗利</div><div class="kpi-main"><span class="kpi-value">' + fmtSalary(scheduledProfit) + '</span></div></div>';
+    html += '</div>';
 
     if (!target) {
       html += '<div class="no-target">📋 ' + currentMonth + ' の目標が未設定です <button class="edit-target-btn" onclick="openTargetModal(\'' + member.id + '\',\'' + currentMonth + '\')">目標を設定する</button></div>';
@@ -764,64 +753,44 @@ function render() {
   } else {
     // 全員比較ビュー
     const term = getTermInfo(currentMonth);
-    function companyMetric(field) {
-      let actualYear = 0, targetYear = 0, actualTerm = 0, targetTerm = 0, actualMonth = 0, targetMonth = 0;
+
+    function periodMetric(monthList) {
+      let actualRevenue=0, targetRevenue=0, actualProfit=0, targetProfit=0, actualAccept=0, targetAccept=0;
       MEMBERS.forEach(function(m) {
         const mPipeline = PIPELINE_DATA.filter(function(p) { return p.members && p.members.name === m.name; });
         const mCandidates = CANDIDATE_DATA.filter(function(c) { return c.members && c.members.name === m.name; });
-        targetYear += sumTargetsForMonths(m.id, term.yearMonths, field);
-        targetTerm += sumTargetsForMonths(m.id, term.months, field);
-        targetMonth += sumTargetsForMonths(m.id, [currentMonth], field);
-        if (field === 'revenue_target') {
-          actualYear += sumActualRevenueForMonths(mPipeline, mCandidates, term.yearMonths);
-          actualTerm += sumActualRevenueForMonths(mPipeline, mCandidates, term.months);
-          actualMonth += sumActualRevenueForMonths(mPipeline, mCandidates, [currentMonth]);
-        } else if (field === 'gross_profit_target') {
-          actualYear += sumGrossProfitForMonths(mCandidates, term.yearMonths);
-          actualTerm += sumGrossProfitForMonths(mCandidates, term.months);
-          actualMonth += sumGrossProfitForMonths(mCandidates, [currentMonth]);
-        } else if (field === 'accept_target') {
-          actualYear += countAcceptsForMonths(mPipeline, term.yearMonths);
-          actualTerm += countAcceptsForMonths(mPipeline, term.months);
-          actualMonth += countAcceptsForMonths(mPipeline, [currentMonth]);
-        }
+        targetRevenue += sumTargetsForMonths(m.id, monthList, 'revenue_target');
+        targetProfit += sumTargetsForMonths(m.id, monthList, 'gross_profit_target');
+        targetAccept += sumTargetsForMonths(m.id, monthList, 'accept_target');
+        actualRevenue += sumActualRevenueForMonths(mPipeline, mCandidates, monthList);
+        actualProfit += sumGrossProfitForMonths(mCandidates, monthList);
+        actualAccept += countAcceptsForMonths(mPipeline, monthList);
       });
-      return { actualYear, targetYear, actualTerm, targetTerm, actualMonth, targetMonth };
+      return { actualRevenue, targetRevenue, actualProfit, targetProfit, actualAccept, targetAccept };
     }
-    const compRevenue = companyMetric('revenue_target');
-    const compProfit = companyMetric('gross_profit_target');
-    const compAccept = companyMetric('accept_target');
 
-    let html = '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">全社進捗</span><span class="sub">売上・粗利・内定承諾数（個人目標の合計）</span></div>';
-    html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">';
-    html += '<div class="progress-card"><div style="font-size:12px;color:#6B7A99;margin-bottom:10px">年間（' + term.yearLabel + '）</div>' +
-      progressRow('売上', compRevenue.actualYear, compRevenue.targetYear, '#0D40D9', true) +
-      progressRow('粗利', compProfit.actualYear, compProfit.targetYear, '#1baf7a', true) +
-      progressRow('内定承諾数', compAccept.actualYear, compAccept.targetYear, '#eb6834', false) + '</div>';
-    html += '<div class="progress-card"><div style="font-size:12px;color:#6B7A99;margin-bottom:10px">' + term.termLabel + '（' + term.termRangeLabel + '）</div>' +
-      progressRow('売上', compRevenue.actualTerm, compRevenue.targetTerm, '#0D40D9', true) +
-      progressRow('粗利', compProfit.actualTerm, compProfit.targetTerm, '#1baf7a', true) +
-      progressRow('内定承諾数', compAccept.actualTerm, compAccept.targetTerm, '#eb6834', false) + '</div>';
-    html += '<div class="progress-card"><div style="font-size:12px;color:#6B7A99;margin-bottom:10px">当月（' + currentMonth + '）</div>' +
-      progressRow('売上', compRevenue.actualMonth, compRevenue.targetMonth, '#0D40D9', true) +
-      progressRow('粗利', compProfit.actualMonth, compProfit.targetMonth, '#1baf7a', true) +
-      progressRow('内定承諾数', compAccept.actualMonth, compAccept.targetMonth, '#eb6834', false) + '</div>';
-    html += '</div>';
+    function renderProgressCard(label, m) {
+      return '<div class="progress-card" style="margin-bottom:24px">' +
+        '<div style="font-size:12px;color:#6B7A99;margin-bottom:10px">' + label + '</div>' +
+        progressRow('売上', m.actualRevenue, m.targetRevenue, '#0D40D9', true) +
+        progressRow('粗利', m.actualProfit, m.targetProfit, '#1baf7a', true) +
+        progressRow('内定承諾数', m.actualAccept, m.targetAccept, '#eb6834', false) +
+        '</div>';
+    }
 
-    // ===== ランキング（達成率・売上額） =====
-    const rankData = MEMBERS.map(function(m) {
-      const mPipeline = PIPELINE_DATA.filter(function(p) { return p.members && p.members.name === m.name; });
-      const mCandidates = CANDIDATE_DATA.filter(function(c) { return c.members && c.members.name === m.name; });
-      const actual = sumActualRevenueForMonths(mPipeline, mCandidates, term.months);
-      const tgt = sumTargetsForMonths(m.id, term.months, 'revenue_target');
-      const nicks = m.nickname ? m.nickname.split(',') : [];
-      const nick = nicks.length ? nicks[Math.floor(Math.random() * nicks.length)] : '';
-      return { name: MEMBER_NAMES[m.name], nick: nick, actual: actual, rate: tgt ? actual/tgt : 0 };
-    });
-    const rateRank = rankData.slice().sort(function(a,b) { return b.rate - a.rate; });
-    const revenueRank = rankData.slice().sort(function(a,b) { return b.actual - a.actual; });
+    function buildRankingData(monthList) {
+      return MEMBERS.map(function(m) {
+        const mPipeline = PIPELINE_DATA.filter(function(p) { return p.members && p.members.name === m.name; });
+        const mCandidates = CANDIDATE_DATA.filter(function(c) { return c.members && c.members.name === m.name; });
+        const actual = sumActualRevenueForMonths(mPipeline, mCandidates, monthList);
+        const tgt = sumTargetsForMonths(m.id, monthList, 'revenue_target');
+        const nicks = m.nickname ? m.nickname.split(',') : [];
+        const nick = nicks.length ? nicks[Math.floor(Math.random() * nicks.length)] : '';
+        return { name: MEMBER_NAMES[m.name], nick: nick, actual: actual, rate: tgt ? actual/tgt : 0 };
+      });
+    }
 
-    function renderRanking(list, valueFn) {
+    function renderRankingRows(list, valueFn) {
       let out = '<div class="ranking-card" style="margin-bottom:24px">';
       list.forEach(function(r, i) {
         const isFirst = i === 0;
@@ -835,11 +804,37 @@ function render() {
       return out;
     }
 
-    html += '<div class="sec-header"><span class="bar" style="background:#eb6834"></span><span class="title">達成率ランキング</span><span class="sub">' + term.termLabel + '（' + term.termRangeLabel + '）・実績ベース</span></div>';
-    html += renderRanking(rateRank, function(r) { return Math.round(r.rate*100) + '%'; });
+    function renderRankingPair(monthList, subLabel) {
+      const data = buildRankingData(monthList);
+      const rateRank = data.slice().sort(function(a,b) { return b.rate - a.rate; });
+      const revenueRank = data.slice().sort(function(a,b) { return b.actual - a.actual; });
+      let out = '<div class="sec-header"><span class="bar" style="background:#eb6834"></span><span class="title">達成率ランキング</span><span class="sub">' + subLabel + '・実績ベース</span></div>';
+      out += renderRankingRows(rateRank, function(r) { return Math.round(r.rate*100) + '%'; });
+      out += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">売上額ランキング</span><span class="sub">' + subLabel + '・実績ベース</span></div>';
+      out += renderRankingRows(revenueRank, function(r) { return fmtSalary(r.actual); });
+      return out;
+    }
 
-    html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">売上額ランキング</span><span class="sub">' + term.termLabel + '（' + term.termRangeLabel + '）・実績ベース</span></div>';
-    html += renderRanking(revenueRank, function(r) { return fmtSalary(r.actual); });
+    let html = '';
+
+    // ===== 月間セクション =====
+    html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">月間</span><span class="sub">' + currentMonth + '</span></div>';
+    html += renderProgressCard(currentMonth, periodMetric([currentMonth]));
+
+    html += '<div class="section-title">全員 進行中フェーズ別件数</div>';
+    const FUNNEL_PHASE_RANGE = ['応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾'];
+    const allActive = PIPELINE_DATA.filter(p => p.status === '進行中' && FUNNEL_PHASE_RANGE.includes(p.phase));
+    const allPhase = {};
+    allActive.forEach(p => { const ph = p.phase||'未設定'; allPhase[ph]=(allPhase[ph]||0)+1; });
+    html += '<div class="funnel-grid">';
+    FUNNEL_PHASE_RANGE.forEach(ph => {
+      const cnt = allPhase[ph] || 0;
+      if (cnt === 0) return;
+      html += '<div class="funnel-card"><div class="funnel-num">' + cnt + '</div><div class="funnel-label">' + ph + '</div></div>';
+    });
+    html += '</div>';
+
+    html += renderRankingPair([currentMonth], currentMonth);
 
     html += '<div class="section-title">メンバー別 売上・KPI比較（' + currentMonth + '）</div>';
     html += '<table class="compare-table"><thead><tr><th>担当者</th><th>売上見込み</th><th>売上実績</th><th>粗利</th><th>面談</th><th>推薦</th><th>選考</th><th>内定</th><th>承諾</th></tr></thead><tbody>';
@@ -879,19 +874,15 @@ function render() {
 
     html += '</tbody></table>';
 
-    // 全員の進行中フェーズ別（応募承諾〜内定承諾のみ）
-    html += '<div class="section-title">全員 進行中フェーズ別件数</div>';
-    const FUNNEL_PHASE_RANGE = ['応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾'];
-    const allActive = PIPELINE_DATA.filter(p => p.status === '進行中' && FUNNEL_PHASE_RANGE.includes(p.phase));
-    const allPhase = {};
-    allActive.forEach(p => { const ph = p.phase||'未設定'; allPhase[ph]=(allPhase[ph]||0)+1; });
-    html += '<div class="funnel-grid">';
-    FUNNEL_PHASE_RANGE.forEach(ph => {
-      const cnt = allPhase[ph] || 0;
-      if (cnt === 0) return;
-      html += '<div class="funnel-card"><div class="funnel-num">' + cnt + '</div><div class="funnel-label">' + ph + '</div></div>';
-    });
-    html += '</div>';
+    // ===== 期セクション =====
+    html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">' + term.termLabel + '</span><span class="sub">' + term.termRangeLabel + '</span></div>';
+    html += renderProgressCard(term.termLabel + '（' + term.termRangeLabel + '）', periodMetric(term.months));
+    html += renderRankingPair(term.months, term.termLabel + '（' + term.termRangeLabel + '）');
+
+    // ===== 年間セクション =====
+    html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">年間</span><span class="sub">' + term.yearLabel + '</span></div>';
+    html += renderProgressCard(term.yearLabel, periodMetric(term.yearMonths));
+    html += renderRankingPair(term.yearMonths, term.yearLabel);
 
     el.innerHTML = html;
   }
