@@ -655,7 +655,7 @@ function render() {
 
     let html = '';
 
-    // ===== ブロック1：達成率（今期実績・今月実績） =====
+    // ===== 枠1：今期実績 =====
     html += '<div class="section-block">';
 
     // --- 今期実績 ---
@@ -687,6 +687,10 @@ function render() {
         '<div class="m-bar-wrap"><div class="m-bar" style="width:' + (mRate*100) + '%;background:' + (isNow ? '#1baf7a' : '#85B7EB') + '"></div></div></div>';
     });
     html += '</div></div>';
+    html += '</div>';
+
+    // ===== 枠2：今月実績 =====
+    html += '<div class="section-block">';
 
     // --- 今月実績 ---
     const myMonthActual = sumActualRevenueForMonths(myPipeline, myCandidates, [currentMonth]);
@@ -708,7 +712,7 @@ function render() {
     html += '</div>';
     html += '</div>';
 
-    // ===== ブロック2：面接予定・アクション・KPI・フェーズ別 =====
+    // ===== 枠3：面接予定・アクション・KPI・フェーズ別 =====
     html += '<div class="section-block">';
 
     const scheduledPipeline = myPipeline.filter(function(p) { return p.status === '進行中' && INTERVIEW_SCHEDULED_PHASES.includes(p.phase); });
