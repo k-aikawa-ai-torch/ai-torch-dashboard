@@ -765,31 +765,35 @@ function render() {
     // 全員比較ビュー
     const term = getTermInfo(currentMonth);
     function companyMetric(field) {
-      let actualYear = 0, targetYear = 0, actualTerm = 0, targetTerm = 0;
+      let actualYear = 0, targetYear = 0, actualTerm = 0, targetTerm = 0, actualMonth = 0, targetMonth = 0;
       MEMBERS.forEach(function(m) {
         const mPipeline = PIPELINE_DATA.filter(function(p) { return p.members && p.members.name === m.name; });
         const mCandidates = CANDIDATE_DATA.filter(function(c) { return c.members && c.members.name === m.name; });
         targetYear += sumTargetsForMonths(m.id, term.yearMonths, field);
         targetTerm += sumTargetsForMonths(m.id, term.months, field);
+        targetMonth += sumTargetsForMonths(m.id, [currentMonth], field);
         if (field === 'revenue_target') {
           actualYear += sumActualRevenueForMonths(mPipeline, mCandidates, term.yearMonths);
           actualTerm += sumActualRevenueForMonths(mPipeline, mCandidates, term.months);
+          actualMonth += sumActualRevenueForMonths(mPipeline, mCandidates, [currentMonth]);
         } else if (field === 'gross_profit_target') {
           actualYear += sumGrossProfitForMonths(mCandidates, term.yearMonths);
           actualTerm += sumGrossProfitForMonths(mCandidates, term.months);
+          actualMonth += sumGrossProfitForMonths(mCandidates, [currentMonth]);
         } else if (field === 'accept_target') {
           actualYear += countAcceptsForMonths(mPipeline, term.yearMonths);
           actualTerm += countAcceptsForMonths(mPipeline, term.months);
+          actualMonth += countAcceptsForMonths(mPipeline, [currentMonth]);
         }
       });
-      return { actualYear, targetYear, actualTerm, targetTerm };
+      return { actualYear, targetYear, actualTerm, targetTerm, actualMonth, targetMonth };
     }
     const compRevenue = companyMetric('revenue_target');
     const compProfit = companyMetric('gross_profit_target');
     const compAccept = companyMetric('accept_target');
 
     let html = '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">全社進捗</span><span class="sub">売上・粗利・内定承諾数（個人目標の合計）</span></div>';
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px">';
+    html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">';
     html += '<div class="progress-card"><div style="font-size:12px;color:#6B7A99;margin-bottom:10px">年間（' + term.yearLabel + '）</div>' +
       progressRow('売上', compRevenue.actualYear, compRevenue.targetYear, '#0D40D9', true) +
       progressRow('粗利', compProfit.actualYear, compProfit.targetYear, '#1baf7a', true) +
@@ -798,6 +802,10 @@ function render() {
       progressRow('売上', compRevenue.actualTerm, compRevenue.targetTerm, '#0D40D9', true) +
       progressRow('粗利', compProfit.actualTerm, compProfit.targetTerm, '#1baf7a', true) +
       progressRow('内定承諾数', compAccept.actualTerm, compAccept.targetTerm, '#eb6834', false) + '</div>';
+    html += '<div class="progress-card"><div style="font-size:12px;color:#6B7A99;margin-bottom:10px">当月（' + currentMonth + '）</div>' +
+      progressRow('売上', compRevenue.actualMonth, compRevenue.targetMonth, '#0D40D9', true) +
+      progressRow('粗利', compProfit.actualMonth, compProfit.targetMonth, '#1baf7a', true) +
+      progressRow('内定承諾数', compAccept.actualMonth, compAccept.targetMonth, '#eb6834', false) + '</div>';
     html += '</div>';
 
     // ===== ランキング（達成率・売上額） =====
@@ -820,7 +828,7 @@ function render() {
         out += '<div class="ranking-row">' +
           '<span class="ranking-rank' + (isFirst ? ' first' : '') + '">' + (i+1) + '</span>' +
           (isFirst ? '<span class="ranking-photo"><img src="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/assets/ohagi-1.png" alt=""></span>' : '<span style="width:32px;flex-shrink:0"></span>') +
-          '<span class="ranking-name' + (isFirst ? ' first' : '') + '">' + r.name + 'さん' + (r.nick ? '<span style="font-size:11px;color:#9aa3b8;margin-left:6px">（' + r.nick + '）</span>' : '') + '</span>' +
+          '<span class="ranking-name' + (isFirst ? ' first' : '') + '">' + (r.nick || r.name + 'さん') + '</span>' +
           '<span class="ranking-rate">' + valueFn(r) + '</span></div>';
       });
       out += '</div>';
@@ -834,7 +842,7 @@ function render() {
     html += renderRanking(revenueRank, function(r) { return fmtSalary(r.actual); });
 
     html += '<div class="section-title">メンバー別 売上・KPI比較（' + currentMonth + '）</div>';
-    html += '<table class="compare-table"><thead><tr><th>担当者</th><th>売上見込み</th><th>粗利</th><th>面談</th><th>推薦</th><th>選考</th><th>内定</th><th>承諾</th></tr></thead><tbody>';
+    html += '<table class="compare-table"><thead><tr><th>担当者</th><th>売上見込み</th><th>売上実績</th><th>粗利</th><th>面談</th><th>推薦</th><th>選考</th><th>内定</th><th>承諾</th></tr></thead><tbody>';
 
     MEMBERS.forEach(member => {
       const memberName = MEMBER_NAMES[member.name];
@@ -842,6 +850,7 @@ function render() {
       const myCandidates = CANDIDATE_DATA.filter(c => c.members && c.members.name === member.name);
       const actuals = calcActuals(myPipeline, myCandidates, currentMonth);
       const target = getTarget(member.id, currentMonth);
+      const monthActualRevenue = sumActualRevenueForMonths(myPipeline, myCandidates, [currentMonth]);
 
       function cell(actual, tgt, isRev) {
         const rate = tgt ? actual / tgt : null;
@@ -858,6 +867,7 @@ function render() {
       html += '<tr>' +
         '<td><strong>' + member.display_name + '</strong></td>' +
         cell(actuals.revenueSum, target ? target.revenue_target : null, true) +
+        cell(monthActualRevenue, target ? target.revenue_target : null, true) +
         cell(actuals.grossProfitSum, target ? target.gross_profit_target : null, true) +
         cell(actuals.interviews, target ? target.interview_target : null, false) +
         cell((target && target.recommend_actual) || 0, target ? target.recommend_target : null, false) +
@@ -869,14 +879,14 @@ function render() {
 
     html += '</tbody></table>';
 
-    // 全員の進行中フェーズ別
+    // 全員の進行中フェーズ別（応募承諾〜内定承諾のみ）
     html += '<div class="section-title">全員 進行中フェーズ別件数</div>';
-    const allActive = PIPELINE_DATA.filter(p => p.status === '進行中');
+    const FUNNEL_PHASE_RANGE = ['応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾'];
+    const allActive = PIPELINE_DATA.filter(p => p.status === '進行中' && FUNNEL_PHASE_RANGE.includes(p.phase));
     const allPhase = {};
     allActive.forEach(p => { const ph = p.phase||'未設定'; allPhase[ph]=(allPhase[ph]||0)+1; });
-    const PHASE_ORDER2 = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾','入社待ち','入社済み'];
     html += '<div class="funnel-grid">';
-    PHASE_ORDER2.forEach(ph => {
+    FUNNEL_PHASE_RANGE.forEach(ph => {
       const cnt = allPhase[ph] || 0;
       if (cnt === 0) return;
       html += '<div class="funnel-card"><div class="funnel-num">' + cnt + '</div><div class="funnel-label">' + ph + '</div></div>';
