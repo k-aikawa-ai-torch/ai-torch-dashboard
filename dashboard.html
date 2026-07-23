@@ -727,17 +727,39 @@ function render() {
 
     // 今月やるべきアクション
     if (target) {
-      const triageItems = [
+      // 月の経過割合（対象月が今月なら実際の経過日数、過去月なら100%、未来月なら0%）
+      const now2 = new Date();
+      const curYm = now2.getFullYear() + '-' + String(now2.getMonth()+1).padStart(2,'0');
+      const [tY, tM] = currentMonth.split('-').map(Number);
+      const daysInMonth = new Date(tY, tM, 0).getDate();
+      let elapsedFraction;
+      if (currentMonth < curYm) elapsedFraction = 1;
+      else if (currentMonth > curYm) elapsedFraction = 0;
+      else elapsedFraction = Math.min(now2.getDate() / daysInMonth, 1);
+
+      // ペース考慮なし（売上・粗利・内定数・承諾数：リードタイムが長く月内の進み具合に左右されにくい）
+      const flatItems = [
         { label: '売上見込み', actual: actuals.revenueSum, tgt: target.revenue_target },
         { label: '粗利', actual: actuals.grossProfitSum, tgt: target.gross_profit_target },
-        { label: '面談数', actual: actuals.interviews, tgt: target.interview_target },
-        { label: '推薦数', actual: (target.recommend_actual)||0, tgt: target.recommend_target },
-        { label: '選考数', actual: actuals.selections, tgt: target.selection_target },
         { label: '内定数', actual: actuals.offers, tgt: target.offer_target },
         { label: '承諾数', actual: actuals.accepts, tgt: target.accept_target },
       ].filter(function(x) { return x.tgt; }).map(function(x) {
         return { label: x.label, rate: x.actual / x.tgt };
       });
+
+      // ペース考慮あり（面談・推薦・選考：日次で積み上がる活動指標）
+      const funnelDefs = [
+        { label: '面談数', actual: actuals.interviews, tgt: target.interview_target },
+        { label: '推薦数', actual: (target.recommend_actual)||0, tgt: target.recommend_target },
+        { label: '選考数', actual: actuals.selections, tgt: target.selection_target },
+      ].filter(function(x) { return x.tgt; });
+      const funnelItems = funnelDefs.map(function(x) {
+        const paceTarget = x.tgt * elapsedFraction;
+        const rate = paceTarget > 0 ? x.actual / paceTarget : (x.actual > 0 ? 1 : 0);
+        return { label: x.label, rate: rate };
+      });
+
+      const triageItems = flatItems.concat(funnelItems);
       const critical = triageItems.filter(function(x) { return x.rate < 0.5; });
       const iffy = triageItems.filter(function(x) { return x.rate >= 0.5 && x.rate < 0.9; });
       const good = triageItems.filter(function(x) { return x.rate >= 0.9; });
@@ -747,7 +769,16 @@ function render() {
         return items.map(function(x) { return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid #f0f0f0"><span>' + x.label + '</span><span style="font-weight:500">' + Math.round(x.rate*100) + '%</span></div>'; }).join('');
       }
 
-      html += '<div class="sec-header"><span class="bar" style="background:#e24b4a"></span><span class="title">今月やるべきアクション</span><span class="sub">' + currentMonth + '・目標に対して不足している指標</span></div>';
+      // ボトルネック検出（面談数→推薦数→選考数のうち、ペース比が最も低い項目）
+      let bottleneckHtml = '';
+      if (funnelItems.length) {
+        const worst = funnelItems.reduce(function(a,b) { return b.rate < a.rate ? b : a; });
+        bottleneckHtml = '<div style="background:#FFF5F5;border:1px solid #F5C6C6;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#A32D2D">' +
+          '🎯 <strong>' + worst.label + '</strong>がペースに対して最も遅れています（ペース比 ' + Math.round(worst.rate*100) + '%）</div>';
+      }
+
+      html += '<div class="sec-header"><span class="bar" style="background:#e24b4a"></span><span class="title">今月やるべきアクション</span><span class="sub">' + currentMonth + '・売上/粗利は対目標、活動指標は月内ペース比で判定</span></div>';
+      html += bottleneckHtml;
       html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">';
       html += '<div class="progress-card"><div style="font-size:12px;color:#A32D2D;margin-bottom:4px;font-weight:500">🔴 クリティカル（50%未満）</div>' + triageList(critical) + '</div>';
       html += '<div class="progress-card"><div style="font-size:12px;color:#854F0B;margin-bottom:4px;font-weight:500">🟡 微妙（50〜90%）</div>' + triageList(iffy) + '</div>';
