@@ -617,6 +617,35 @@ function renderKpiCard(label, actual, target, unit, isRevenue) {
     '</div>';
 }
 
+// 推薦数：手入力の実績値をKPIカード上で直接編集できるようにする
+function renderRecommendKpiCard(memberId, month, actual, target) {
+  const rate = target ? actual / target : null;
+  const pct = rate !== null ? Math.min(rate * 100, 100) : 0;
+  const cls = rate !== null ? barClass(rate) : 'good';
+  const targetStr = target ? target : '-';
+  return '<div class="kpi-card">' +
+    '<div class="kpi-label">推薦数</div>' +
+    '<div class="kpi-main"><input type="number" id="kpi-recommend-input" value="' + (actual||0) + '" ' +
+      'onchange="saveRecommendActualInline(\'' + memberId + '\',\'' + month + '\')" ' +
+      'style="width:64px;height:28px;padding:0 6px;border:1px solid #DEE7F7;border-radius:4px;font-size:16px;font-weight:500;text-align:right"><span class="kpi-unit">件</span></div>' +
+    (target ? '<div class="kpi-target">目標: ' + targetStr + '件</div>' : '<div class="kpi-target">目標未設定</div>') +
+    (target ? '<div class="kpi-bar-wrap"><div class="kpi-bar ' + cls + '" style="width:' + pct + '%"></div></div>' : '') +
+    (target ? '<div class="kpi-rate ' + cls + '">' + fmtRate(rate) + '</div>' : '') +
+    '</div>';
+}
+
+async function saveRecommendActualInline(memberId, month) {
+  const input = document.getElementById('kpi-recommend-input');
+  const value = input.value ? parseInt(input.value) : null;
+  const existing = TARGETS.find(function(t) { return t.member_id === memberId && t.year_month === month; });
+  const payload = { member_id: memberId, year_month: month, recommend_actual: value, updated_at: new Date().toISOString() };
+  const { error } = await sb.from('targets').upsert(payload, { onConflict: 'member_id,year_month' });
+  if (error) { alert('保存に失敗しました: ' + error.message); return; }
+  const { data: targets } = await sb.from('targets').select('*,members(name,display_name)');
+  TARGETS = targets || [];
+  render();
+}
+
 function render() {
   const el = document.getElementById('dashboard-content');
 
@@ -790,7 +819,7 @@ function render() {
     html += '<div class="section-title">KPI（' + currentMonth + '）</div>';
     html += '<div class="kpi-grid">';
     html += renderKpiCard('面談数', actuals.interviews, target ? target.interview_target : null, '件', false);
-    html += renderKpiCard('推薦数', (target && target.recommend_actual) || 0, target ? target.recommend_target : null, '件', false);
+    html += renderRecommendKpiCard(member.id, currentMonth, (target && target.recommend_actual) || 0, target ? target.recommend_target : null);
     html += renderKpiCard('選考数', actuals.selections, target ? target.selection_target : null, '件', false);
     html += renderKpiCard('内定数', actuals.offers, target ? target.offer_target : null, '件', false);
     html += renderKpiCard('承諾数', actuals.accepts, target ? target.accept_target : null, '件', false);
