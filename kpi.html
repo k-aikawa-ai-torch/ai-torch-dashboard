@@ -66,6 +66,14 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 .custom-row .creator{font-size:11px;color:#9aa3b8}
 .custom-row .value{font-size:15px;font-weight:600;color:#14213D;width:70px;text-align:right}
 .custom-row .del-btn{background:none;border:none;color:#c00;cursor:pointer;font-size:12px}
+.funnel-chart{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding-bottom:4px}
+.funnel-step{display:flex;flex-direction:column;align-items:center;min-width:88px;flex-shrink:0}
+.funnel-step .fs-box{background:#fff;border:1px solid #DEE7F7;border-radius:10px;padding:10px 8px;text-align:center;width:100%}
+.funnel-step .fs-label{font-size:10.5px;color:#6B7A99;margin-bottom:4px;white-space:nowrap}
+.funnel-step .fs-value{font-size:18px;font-weight:600;color:#14213D}
+.funnel-arrow{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:40px;flex-shrink:0;font-size:11px;color:#9aa3b8}
+.funnel-arrow .fa-rate{font-weight:500;color:#0D40D9;margin-top:2px}
+.risk-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
 </style>
 <link rel="stylesheet" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/assets/shared.css">
 </head>
@@ -144,7 +152,7 @@ const MEMBER_NAMES = {'aikawa_kenta':'相川','nagai_yudai':'永井','aizawa_yum
 const SOURCE_LIST = ['スカウト（ビズリーチ）','レバテックダイレクト','スカウト（LinkedIn）','スカウト（AMBI）','スカウト（YOUTRUST）','リファラル（求職者紹介）','リファラル（社員経由）','自社HP','アライアンス'];
 
 let MEMBERS = [], PIPELINE_DATA = [], PHASE_HISTORY = [], CANDIDATE_DATA = [], TARGETS = [];
-let MANUAL_KPI = [], CUSTOM_METRICS = [];
+let MANUAL_KPI = [], CUSTOM_METRICS = [], RISK_INPUTS = [];
 let currentMember = '全員';
 let currentMonth = '';
 let editMode = false;
@@ -214,7 +222,7 @@ async function loadData() {
   allMonths.reverse();
   selectEl.innerHTML = '<option value="">他の月を選択…</option>' + allMonths.map(m => '<option value="' + m.key + '">' + m.label + '</option>').join('');
 
-  const [{ data: members }, { data: candidates }, { data: targets }, pipeline, phaseHistory, { data: manualKpi }, { data: customMetrics }] = await Promise.all([
+  const [{ data: members }, { data: candidates }, { data: targets }, pipeline, phaseHistory, { data: manualKpi }, { data: customMetrics }, { data: riskInputs }] = await Promise.all([
     sb.from('members').select('*'),
     sb.from('candidates').select('*,members(name,display_name)'),
     sb.from('targets').select('*,members(name,display_name)'),
@@ -222,6 +230,7 @@ async function loadData() {
     fetchAllRange('pipeline_phase_history', '*'),
     sb.from('manual_kpi_inputs').select('*'),
     sb.from('custom_metrics').select('*,members(name,display_name)'),
+    sb.from('risk_inputs').select('*'),
   ]);
 
   MEMBERS = members || [];
@@ -231,6 +240,7 @@ async function loadData() {
   PHASE_HISTORY = phaseHistory || [];
   MANUAL_KPI = manualKpi || [];
   CUSTOM_METRICS = customMetrics || [];
+  RISK_INPUTS = riskInputs || [];
 
   document.getElementById('header-badge').textContent = currentMonth;
   render();
@@ -274,6 +284,26 @@ function countPhaseReachedInMonth(pipelineItems, phase, month) {
   const map = firstOccurrenceMap(pipelineItems, [phase]);
   return Object.values(map).filter(d => d.substring(0,7) === month).length;
 }
+// 指定フェーズに当月中に初到達した「候補者」のユニーク数（延べではなく人数）
+function countUniquePhaseReachedInMonth(pipelineItems, phase, month) {
+  const map = firstOccurrenceMap(pipelineItems, [phase]);
+  const ids = new Set();
+  Object.keys(map).forEach(pid => {
+    if (map[pid].substring(0,7) !== month) return;
+    const p = pipelineItems.find(x => x.id === pid);
+    if (p && p.candidate_id) ids.add(p.candidate_id);
+  });
+  return ids.size;
+}
+// 推薦（＝求人への提案＝パイプライン新規作成）件数（延べ）
+function countRecommendsDeal(pipelineItems, month) {
+  return pipelineItems.filter(p => (p.created_at||'').substring(0,7) === month).length;
+}
+// 推薦人数（ユニーク候補者数）
+function countRecommendsUnique(pipelineItems, month) {
+  const ids = new Set(pipelineItems.filter(p => (p.created_at||'').substring(0,7) === month).map(p => p.candidate_id).filter(Boolean));
+  return ids.size;
+}
 const ACCEPT_PHASES = ['内定承諾','入社待ち','入社済み'];
 function countAcceptsForMonths(pipelineItems, monthList) {
   const map = firstOccurrenceMap(pipelineItems, ACCEPT_PHASES);
@@ -309,10 +339,14 @@ function computeBaseMetric(key, pipelineItems, candidateItems, month) {
     case 'doc_screen': return countPhaseReachedInMonth(pipelineItems, '書類選考', month);
     case 'casual': return countPhaseReachedInMonth(pipelineItems, 'カジュアル面談', month);
     case 'first_interview': return countPhaseReachedInMonth(pipelineItems, '一次面接', month);
+    case 'second_interview': return countPhaseReachedInMonth(pipelineItems, '二次～面接', month);
     case 'final_interview': return countPhaseReachedInMonth(pipelineItems, '最終面接', month);
     case 'offer': return countPhaseReachedInMonth(pipelineItems, '内定', month);
+    case 'offer_unique': return countUniquePhaseReachedInMonth(pipelineItems, '内定', month);
     case 'accept': return countPhaseReachedInMonth(pipelineItems, '内定承諾', month);
     case 'interviews': return candidateItems.filter(c => (c.registered_at||'').substring(0,7) === month).length;
+    case 'recommend_deal': return countRecommendsDeal(pipelineItems, month);
+    case 'recommend_unique': return countRecommendsUnique(pipelineItems, month);
     case 'recommends': {
       const ids = [...new Set(pipelineItems.map(p => p.member_id).filter(Boolean))];
       return ids.reduce((s,mid) => { const t = TARGETS.find(t => t.member_id===mid && t.year_month===month); return s + ((t && t.recommend_actual) || 0); }, 0);
@@ -334,12 +368,16 @@ const BASE_METRIC_OPTIONS = [
   { key: 'scout', label: 'スカウト数（手入力）' },
   { key: 'lead', label: 'リード獲得数（手入力）' },
   { key: 'interviews', label: '面談数（候補者登録数）' },
-  { key: 'recommends', label: '推薦数' },
+  { key: 'recommend_deal', label: '推薦件数（延べ）' },
+  { key: 'recommend_unique', label: '推薦人数（ユニーク）' },
+  { key: 'recommends', label: '推薦数（手入力合計）' },
   { key: 'doc_screen', label: '書類選考到達数' },
   { key: 'casual', label: 'カジュアル面談到達数' },
   { key: 'first_interview', label: '一次面接到達数' },
+  { key: 'second_interview', label: '二次面接到達数' },
   { key: 'final_interview', label: '最終面接到達数' },
-  { key: 'offer', label: '内定到達数' },
+  { key: 'offer', label: '内定到達数（延べ）' },
+  { key: 'offer_unique', label: '内定到達数（ユニーク）' },
   { key: 'accept', label: '内定承諾到達数' },
   { key: 'revenue', label: '売上実績（円）' },
   { key: 'profit', label: '粗利実績（円）' },
@@ -349,32 +387,53 @@ function render() {
   const el = document.getElementById('kpi-content');
   const myPipeline = filterByMemberName(PIPELINE_DATA, currentMember);
   const myCandidates = filterByMemberName(CANDIDATE_DATA, currentMember);
+  const memberIds = currentMember === '全員' ? MEMBERS.map(m => m.id) : [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
 
   let html = '';
 
-  // ===== デフォルト指標（自動集計） =====
-  const docScreen = computeBaseMetric('doc_screen', myPipeline, myCandidates, currentMonth);
-  const casual = computeBaseMetric('casual', myPipeline, myCandidates, currentMonth);
-  const firstI = computeBaseMetric('first_interview', myPipeline, myCandidates, currentMonth);
-  const finalI = computeBaseMetric('final_interview', myPipeline, myCandidates, currentMonth);
-  const offer = computeBaseMetric('offer', myPipeline, myCandidates, currentMonth);
-  const accept = computeBaseMetric('accept', myPipeline, myCandidates, currentMonth);
+  // ===== ファネル（推薦〜内定承諾） =====
+  const interviews = computeBaseMetric('interviews', myPipeline, myCandidates, currentMonth);
+  const recDeal = countRecommendsDeal(myPipeline, currentMonth);
+  const recUnique = countRecommendsUnique(myPipeline, currentMonth);
+  const docScreen = countPhaseReachedInMonth(myPipeline, '書類選考', currentMonth);
+  const casual = countPhaseReachedInMonth(myPipeline, 'カジュアル面談', currentMonth);
+  const firstI = countPhaseReachedInMonth(myPipeline, '一次面接', currentMonth);
+  const secondI = countPhaseReachedInMonth(myPipeline, '二次～面接', currentMonth);
+  const finalI = countPhaseReachedInMonth(myPipeline, '最終面接', currentMonth);
+  const offerDeal = countPhaseReachedInMonth(myPipeline, '内定', currentMonth);
+  const offerUnique = countUniquePhaseReachedInMonth(myPipeline, '内定', currentMonth);
+  const acceptDeal = countPhaseReachedInMonth(myPipeline, '内定承諾', currentMonth);
   const revenue = computeBaseMetric('revenue', myPipeline, myCandidates, currentMonth);
 
+  const recommendActual = memberIds.reduce((s,mid) => { const t = TARGETS.find(t => t.member_id===mid && t.year_month===currentMonth); return s + ((t && t.recommend_actual) || 0); }, 0);
+  const avgRecommendPerPerson = recUnique ? recommendActual / recUnique : null;
+  const interviewToRecommendRate = interviews ? recUnique/interviews : null;
   const docPassRate = docScreen ? casual/docScreen : null;
-  const firstToFinalRate = firstI ? finalI/firstI : null;
-  const finalToOfferRate = finalI ? offer/finalI : null;
-  const acceptRate = offer ? accept/offer : null;
-  const avgUnitPrice = accept ? revenue/accept : null;
+  const firstToSecondRate = firstI ? secondI/firstI : null;
+  const secondToFinalRate = secondI ? finalI/secondI : null;
+  const finalToOfferRate = finalI ? offerDeal/finalI : null;
+  const acceptRate = offerDeal ? acceptDeal/offerDeal : null;
+  const decidedUnitPrice = acceptDeal ? revenue/acceptDeal : null;
 
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">遷移率・単価（自動計算）</span><span class="sub">' + currentMonth + '</span></div>';
-  html += '<div class="kpi-grid">';
-  html += kpiCard('書類通過率', fmtPct(docPassRate), docScreen + '件 → ' + casual + '件');
-  html += kpiCard('一次⇒最終率', fmtPct(firstToFinalRate), firstI + '件 → ' + finalI + '件');
-  html += kpiCard('最終⇒内定率', fmtPct(finalToOfferRate), finalI + '件 → ' + offer + '件');
-  html += kpiCard('内定承諾率', fmtPct(acceptRate), offer + '件 → ' + accept + '件');
-  html += kpiCard('平均単価', avgUnitPrice!=null ? fmtSalary(avgUnitPrice) : '-', '売上実績 ÷ 承諾数');
+  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">ファネル（推薦〜内定承諾）</span><span class="sub">' + currentMonth + '</span></div>';
+  html += renderFunnel([
+    { label: '面談', value: interviews },
+    { label: '推薦', value: recUnique, rate: interviewToRecommendRate },
+    { label: '書類選考', value: docScreen },
+    { label: 'カジュアル面談', value: casual, rate: docPassRate },
+    { label: '一次面接', value: firstI },
+    { label: '二次面接', value: secondI, rate: firstToSecondRate },
+    { label: '最終面接', value: finalI, rate: secondToFinalRate },
+    { label: '内定', value: offerDeal, rate: finalToOfferRate },
+    { label: '内定承諾', value: acceptDeal, rate: acceptRate },
+  ]);
+
+  html += '<div class="kpi-grid" style="margin-top:16px">';
+  html += kpiCard('推薦', recUnique + '名<span style="font-size:12px;color:#6B7A99"> （' + recDeal + '件）</span>', '延べ件数（人）');
+  html += kpiCard('平均推薦数/人', avgRecommendPerPerson!=null ? Math.round(avgRecommendPerPerson*10)/10 + '件' : '-', '推薦数(手入力計' + recommendActual + '件) ÷ 推薦人数');
+  html += kpiCard('内定', offerDeal + '件<span style="font-size:12px;color:#6B7A99"> （' + offerUnique + '名）</span>', '延べ件数（ユニーク人数）');
+  html += kpiCard('決定単価', decidedUnitPrice!=null ? fmtSalary(decidedUnitPrice) : '-', '売上実績 ÷ 内定承諾件数');
   html += '</div>';
 
   if (currentMember === '全員') {
@@ -382,12 +441,18 @@ function render() {
     html += '<div class="kpi-grid">';
     MEMBERS.forEach(m => {
       const mp = PIPELINE_DATA.filter(p => p.members && p.members.name === m.name);
-      const mOffer = computeBaseMetric('offer', mp, [], currentMonth);
-      const mAccept = computeBaseMetric('accept', mp, [], currentMonth);
+      const mOffer = countPhaseReachedInMonth(mp, '内定', currentMonth);
+      const mAccept = countPhaseReachedInMonth(mp, '内定承諾', currentMonth);
       html += kpiCard(MEMBER_NAMES[m.name], fmtPct(mOffer ? mAccept/mOffer : null), mOffer + '件 → ' + mAccept + '件');
     });
     html += '</div>';
   }
+  html += '</div>';
+
+  // ===== リスク管理（辞退・早期退職） =====
+  html += '<div class="section-block">';
+  html += '<div class="sec-header"><span class="bar" style="background:#e24b4a"></span><span class="title">リスク管理</span><span class="sub">' + currentMonth + '・手入力</span></div>';
+  html += renderRiskSection(memberIds);
   html += '</div>';
 
   // ===== 手入力：スカウト数・リード獲得数（媒体別） =====
@@ -405,6 +470,58 @@ function render() {
   html += '</div>';
 
   el.innerHTML = html;
+}
+
+function renderFunnel(steps) {
+  let html = '<div class="funnel-chart">';
+  steps.forEach(function(s, i) {
+    if (i > 0) {
+      html += '<div class="funnel-arrow">→' + (s.rate != null ? '<span class="fa-rate">' + fmtPct(s.rate) + '</span>' : '') + '</div>';
+    }
+    html += '<div class="funnel-step"><div class="fs-box"><div class="fs-label">' + s.label + '</div><div class="fs-value">' + s.value + '</div></div></div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderRiskSection(memberIds) {
+  let html = '<div class="risk-grid">';
+  if (currentMember === '全員') {
+    let totalW = 0, totalE = 0;
+    MEMBERS.forEach(function(m) {
+      const r = RISK_INPUTS.find(function(x) { return x.member_id === m.id && x.year_month === currentMonth; });
+      totalW += (r && r.withdrawal_count) || 0;
+      totalE += (r && r.early_leave_count) || 0;
+    });
+    html += kpiCard('入社前辞退数（全員計）', totalW + '件', '');
+    html += kpiCard('早期退職数（全員計）', totalE + '件', '6ヶ月以内・返金発生分');
+  } else {
+    const memberId = memberIds[0];
+    const r = RISK_INPUTS.find(function(x) { return x.member_id === memberId && x.year_month === currentMonth; });
+    html += '<div class="kpi-card"><div class="kpi-label">入社前辞退数</div>' +
+      '<div class="kpi-main"><input class="media-input" type="number" id="risk-withdrawal" value="' + (r && r.withdrawal_count != null ? r.withdrawal_count : '') + '" onchange="saveRiskInput(\'' + memberId + '\')" style="width:56px"><span class="kpi-unit">件</span></div></div>';
+    html += '<div class="kpi-card"><div class="kpi-label">早期退職数</div>' +
+      '<div class="kpi-main"><input class="media-input" type="number" id="risk-early-leave" value="' + (r && r.early_leave_count != null ? r.early_leave_count : '') + '" onchange="saveRiskInput(\'' + memberId + '\')" style="width:56px"><span class="kpi-unit">件</span></div>' +
+      '<div class="kpi-sub">6ヶ月以内・返金発生分</div></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+async function saveRiskInput(memberId) {
+  const w = document.getElementById('risk-withdrawal').value;
+  const e = document.getElementById('risk-early-leave').value;
+  const payload = {
+    member_id: memberId, year_month: currentMonth,
+    withdrawal_count: w ? parseInt(w) : null,
+    early_leave_count: e ? parseInt(e) : null,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await sb.from('risk_inputs').upsert(payload, { onConflict: 'member_id,year_month' });
+  if (error) { alert('保存に失敗しました: ' + error.message); return; }
+  const { data } = await sb.from('risk_inputs').select('*');
+  RISK_INPUTS = data || [];
+  render();
 }
 
 function kpiCard(label, value, sub) {
