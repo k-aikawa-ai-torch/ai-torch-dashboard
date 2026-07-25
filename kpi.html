@@ -48,8 +48,8 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 .edit-toggle-btn{padding:6px 14px;font-size:12px;border:1px solid #DEE7F7;border-radius:8px;background:#fff;cursor:pointer;color:#14213D}
 .edit-toggle-btn.on{background:#14213D;color:#fff;border-color:#14213D}
 .media-input{width:64px;height:26px;padding:0 4px;border:1px solid #DEE7F7;border-radius:4px;font-size:12px;text-align:center}
-#media-modal,#custom-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center}
-#media-modal.open,#custom-modal.open{display:flex}
+#media-modal,#custom-modal,#phase-target-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center}
+#media-modal.open,#custom-modal.open,#phase-target-modal.open{display:flex}
 .modal-box{background:#fff;border-radius:12px;width:90%;max-width:520px;padding:24px;max-height:85vh;overflow-y:auto}
 .modal-header{font-size:15px;font-weight:500;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center}
 .modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:#6B7A99}
@@ -127,6 +127,23 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
   </div>
 </div>
 
+<div id="phase-target-modal">
+  <div class="modal-box">
+    <div class="modal-header"><span id="pt-modal-title">フェーズ別目標を編集</span><button class="modal-close" onclick="closePhaseTargetModal()">×</button></div>
+    <div class="form-group"><label>書類選考目標（件）</label><input id="pt-doc-screen" type="number"></div>
+    <div class="form-group"><label>カジュアル面談目標（件）</label><input id="pt-casual" type="number"></div>
+    <div class="form-group"><label>一次面接目標（件）</label><input id="pt-first" type="number"></div>
+    <div class="form-group"><label>二次面接目標（件）</label><input id="pt-second" type="number"></div>
+    <div class="form-group"><label>最終面接目標（件）</label><input id="pt-final" type="number"></div>
+    <div style="font-size:11px;color:#9aa3b8;margin:-4px 0 10px">内定・内定承諾の目標はダッシュボード側の目標編集と共通です</div>
+    <div class="form-actions">
+      <span class="save-msg" id="pt-save-msg"></span>
+      <button class="btn-cancel" onclick="closePhaseTargetModal()">キャンセル</button>
+      <button class="btn-save" onclick="savePhaseTarget()">保存</button>
+    </div>
+  </div>
+</div>
+
 <div id="custom-modal">
   <div class="modal-box">
     <div class="modal-header"><span>カスタム指標を追加</span><button class="modal-close" onclick="closeCustomModal()">×</button></div>
@@ -150,9 +167,17 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const MEMBER_MAP = {'相川':'aikawa_kenta','永井':'nagai_yudai','會澤':'aizawa_yuma'};
 const MEMBER_NAMES = {'aikawa_kenta':'相川','nagai_yudai':'永井','aizawa_yuma':'會澤'};
 const SOURCE_LIST = ['スカウト（ビズリーチ）','レバテックダイレクト','スカウト（LinkedIn）','スカウト（AMBI）','スカウト（YOUTRUST）','リファラル（求職者紹介）','リファラル（社員経由）','自社HP','アライアンス'];
+const JOB_TYPE_LIST = ['CxO','SRE/クラウドエンジニア','開発エンジニア','AI/DS','デザイナー','インフラエンジニア','コンサル/PM','PdM','QA','マーケター','WEBディレ','人事','Bizdev','営業','その他'];
+const SALARY_BANDS = [
+  { label: '〜400万', min: 0, max: 4000000 },
+  { label: '400〜600万', min: 4000000, max: 6000000 },
+  { label: '600〜800万', min: 6000000, max: 8000000 },
+  { label: '800〜1000万', min: 8000000, max: 10000000 },
+  { label: '1000万〜', min: 10000000, max: Infinity },
+];
 
 let MEMBERS = [], PIPELINE_DATA = [], PHASE_HISTORY = [], CANDIDATE_DATA = [], TARGETS = [];
-let MANUAL_KPI = [], CUSTOM_METRICS = [], RISK_INPUTS = [];
+let MANUAL_KPI = [], CUSTOM_METRICS = [], RISK_INPUTS = [], ALL_COMPANIES = [];
 let currentMember = '全員';
 let currentMonth = '';
 let editMode = false;
@@ -226,7 +251,7 @@ async function loadData() {
     sb.from('members').select('*'),
     sb.from('candidates').select('*,members(name,display_name)'),
     sb.from('targets').select('*,members(name,display_name)'),
-    fetchAllRange('pipeline', '*, members(name,display_name), candidates(source)'),
+    fetchAllRange('pipeline', '*, members(name,display_name), candidates(source,desired_salary,job_type,registered_at,top_priority_axis), companies(name,score_salary,score_autonomy,score_tech,score_wlb,score_culture,score_brand,score_social)'),
     fetchAllRange('pipeline_phase_history', '*'),
     sb.from('manual_kpi_inputs').select('*'),
     sb.from('custom_metrics').select('*,members(name,display_name)'),
@@ -262,6 +287,31 @@ function setMember(m, el) {
   document.querySelectorAll('.member-tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   render();
+}
+
+function getTarget(memberId, month) {
+  return TARGETS.find(t => t.member_id === memberId && t.year_month === month) || null;
+}
+function sumPhaseTargets(memberIds, month) {
+  const fields = ['interview_target','recommend_target','doc_screen_target','casual_target','first_interview_target','second_interview_target','final_interview_target','offer_target','accept_target'];
+  const out = {};
+  fields.forEach(f => out[f] = 0);
+  memberIds.forEach(function(mid) {
+    const t = getTarget(mid, month);
+    if (!t) return;
+    fields.forEach(f => out[f] += (t[f] || 0));
+  });
+  return out;
+}
+function deriveRateTargets(t) {
+  if (!t) return {};
+  return {
+    docPass: (t.doc_screen_target && t.casual_target) ? t.casual_target/t.doc_screen_target : null,
+    firstToSecond: (t.first_interview_target && t.second_interview_target) ? t.second_interview_target/t.first_interview_target : null,
+    secondToFinal: (t.second_interview_target && t.final_interview_target) ? t.final_interview_target/t.second_interview_target : null,
+    finalToOffer: (t.final_interview_target && t.offer_target) ? t.offer_target/t.final_interview_target : null,
+    acceptRate: (t.offer_target && t.accept_target) ? t.accept_target/t.offer_target : null,
+  };
 }
 
 function filterByMemberName(arr, memberName) {
@@ -415,18 +465,37 @@ function render() {
   const acceptRate = offerDeal ? acceptDeal/offerDeal : null;
   const decidedUnitPrice = acceptDeal ? revenue/acceptDeal : null;
 
+  // 目標値（フェーズ別）と、そこから自動算出した遷移率目標
+  const tInterview = getTargetSum('interview_target', currentMonth, memberIds);
+  const tDocScreen = getTargetSum('doc_screen_target', currentMonth, memberIds);
+  const tCasual = getTargetSum('casual_target', currentMonth, memberIds);
+  const tFirst = getTargetSum('first_interview_target', currentMonth, memberIds);
+  const tSecond = getTargetSum('second_interview_target', currentMonth, memberIds);
+  const tFinal = getTargetSum('final_interview_target', currentMonth, memberIds);
+  const tOffer = getTargetSum('offer_target', currentMonth, memberIds);
+  const tAccept = getTargetSum('accept_target', currentMonth, memberIds);
+  const tDocPassRate = tDocScreen ? tCasual/tDocScreen : null;
+  const tFirstToSecondRate = tFirst ? tSecond/tFirst : null;
+  const tSecondToFinalRate = tSecond ? tFinal/tSecond : null;
+  const tFinalToOfferRate = tFinal ? tOffer/tFinal : null;
+  const tAcceptRate = tOffer ? tAccept/tOffer : null;
+
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">ファネル（推薦〜内定承諾）</span><span class="sub">' + currentMonth + '</span></div>';
+  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">ファネル（推薦〜内定承諾）</span><span class="sub">' + currentMonth + '・下段は目標値</span></div>';
+  if (currentMember !== '全員') {
+    const meForTarget = MEMBERS.find(m => m.name === MEMBER_MAP[currentMember]);
+    html += '<div style="text-align:right;margin-bottom:10px"><button class="edit-toggle-btn" onclick="openPhaseTargetModal(\'' + meForTarget.id + '\')">✏️ フェーズ別目標を編集</button></div>';
+  }
   html += renderFunnel([
-    { label: '面談', value: interviews },
+    { label: '面談', value: interviews, target: tInterview || null },
     { label: '推薦', value: recUnique, rate: interviewToRecommendRate },
-    { label: '書類選考', value: docScreen },
-    { label: 'カジュアル面談', value: casual, rate: docPassRate },
-    { label: '一次面接', value: firstI },
-    { label: '二次面接', value: secondI, rate: firstToSecondRate },
-    { label: '最終面接', value: finalI, rate: secondToFinalRate },
-    { label: '内定', value: offerDeal, rate: finalToOfferRate },
-    { label: '内定承諾', value: acceptDeal, rate: acceptRate },
+    { label: '書類選考', value: docScreen, target: tDocScreen || null },
+    { label: 'カジュアル面談', value: casual, rate: docPassRate, targetRate: tDocPassRate, target: tCasual || null },
+    { label: '一次面接', value: firstI, target: tFirst || null },
+    { label: '二次面接', value: secondI, rate: firstToSecondRate, targetRate: tFirstToSecondRate, target: tSecond || null },
+    { label: '最終面接', value: finalI, rate: secondToFinalRate, targetRate: tSecondToFinalRate, target: tFinal || null },
+    { label: '内定', value: offerDeal, rate: finalToOfferRate, targetRate: tFinalToOfferRate, target: tOffer || null },
+    { label: '内定承諾', value: acceptDeal, rate: acceptRate, targetRate: tAcceptRate, target: tAccept || null },
   ]);
 
   html += '<div class="kpi-grid" style="margin-top:16px">';
@@ -462,6 +531,42 @@ function render() {
   html += renderMediaTable();
   html += '</div>';
 
+  // ===== リードタイム分析 =====
+  html += '<div class="section-block">';
+  html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">リードタイム分析</span><span class="sub">' + currentMonth + '・各段階の平均日数</span></div>';
+  html += renderLeadTimeSection(myPipeline);
+  html += '</div>';
+
+  // ===== クロス集計：媒体×希望年収帯 =====
+  html += '<div class="section-block">';
+  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">媒体 × 希望年収帯</span><span class="sub">' + currentMonth + '登録の候補者数</span></div>';
+  html += '<div style="overflow-x:auto">' + renderSalaryCrosstab(myCandidates) + '</div>';
+  html += '</div>';
+
+  // ===== クロス集計：媒体×職種 =====
+  html += '<div class="section-block">';
+  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">媒体 × 職種</span><span class="sub">' + currentMonth + '登録の候補者数</span></div>';
+  html += renderJobCrosstab(myCandidates);
+  html += '</div>';
+
+  // ===== 月次一覧（直近6ヶ月） =====
+  html += '<div class="section-block">';
+  html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">月次一覧</span><span class="sub">直近6ヶ月（' + getRecent6Months(currentMonth)[0] + '〜' + currentMonth + '）</span></div>';
+  html += renderMonthlyTables(myPipeline, myCandidates, memberIds);
+  html += '</div>';
+
+  // ===== 企業別分析 =====
+  html += '<div class="section-block">';
+  html += '<div class="sec-header"><span class="bar" style="background:#eb6834"></span><span class="title">企業別分析</span><span class="sub">' + currentMonth + '・企業紐付け済みのパイプラインのみ</span></div>';
+  html += renderCompanyAnalysis(myPipeline, currentMonth);
+  html += '</div>';
+
+  // ===== 転職軸マッチ度分析 =====
+  html += '<div class="section-block">';
+  html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">転職軸マッチ度分析</span><span class="sub">' + currentMonth + '・内定承諾者ベース</span></div>';
+  html += renderAxisMatchAnalysis(myPipeline, currentMonth);
+  html += '</div>';
+
   // ===== カスタム指標 =====
   html += '<div class="section-block">';
   html += '<div class="sec-header"><span class="bar" style="background:#eb6834"></span><span class="title">カスタム指標</span><span class="sub">全員に共有・A÷B×倍率</span></div>';
@@ -476,9 +581,14 @@ function renderFunnel(steps) {
   let html = '<div class="funnel-chart">';
   steps.forEach(function(s, i) {
     if (i > 0) {
-      html += '<div class="funnel-arrow">→' + (s.rate != null ? '<span class="fa-rate">' + fmtPct(s.rate) + '</span>' : '') + '</div>';
+      html += '<div class="funnel-arrow">→' +
+        (s.rate != null ? '<span class="fa-rate">' + fmtPct(s.rate) + '</span>' : '') +
+        (s.targetRate != null ? '<span style="font-size:10px;color:#9aa3b8">目標' + fmtPct(s.targetRate) + '</span>' : '') +
+        '</div>';
     }
-    html += '<div class="funnel-step"><div class="fs-box"><div class="fs-label">' + s.label + '</div><div class="fs-value">' + s.value + '</div></div></div>';
+    html += '<div class="funnel-step"><div class="fs-box"><div class="fs-label">' + s.label + '</div><div class="fs-value">' + s.value + '</div>' +
+      (s.target != null ? '<div style="font-size:10px;color:#9aa3b8;margin-top:2px">目標 ' + s.target + '</div>' : '') +
+      '</div></div>';
   });
   html += '</div>';
   return html;
@@ -523,6 +633,253 @@ async function saveRiskInput(memberId) {
   RISK_INPUTS = data || [];
   render();
 }
+
+// ============ 直近6ヶ月・目標値・リードタイム ============
+function getRecent6Months(endMonth) {
+  const [y, m] = endMonth.split('-').map(Number);
+  const arr = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(y, m - 1 - i, 1);
+    arr.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
+  }
+  return arr;
+}
+
+function getTargetSum(field, month, memberIds) {
+  return memberIds.reduce(function(s, mid) {
+    const t = TARGETS.find(function(x) { return x.member_id === mid && x.year_month === month; });
+    return s + ((t && t[field]) || 0);
+  }, 0);
+}
+
+function avgLeadTimeDays(pairs) {
+  if (!pairs.length) return null;
+  const totalDays = pairs.reduce(function(s, pr) { return s + (new Date(pr[1]) - new Date(pr[0])) / 86400000; }, 0);
+  return totalDays / pairs.length;
+}
+function leadTimeInterviewToRecommend(pipelineItems, month) {
+  const pairs = [];
+  pipelineItems.forEach(function(p) {
+    if ((p.created_at||'').substring(0,7) !== month || !p.candidate_id) return;
+    const c = CANDIDATE_DATA.find(function(x) { return x.id === p.candidate_id; });
+    if (c && c.registered_at) pairs.push([c.registered_at, p.created_at]);
+  });
+  return avgLeadTimeDays(pairs);
+}
+function leadTimeRecommendToFirstInterview(pipelineItems, month) {
+  const map = firstOccurrenceMap(pipelineItems, ['一次面接']);
+  const pairs = [];
+  Object.keys(map).forEach(function(pid) {
+    if (map[pid].substring(0,7) !== month) return;
+    const p = pipelineItems.find(function(x) { return x.id === pid; });
+    if (p && p.created_at) pairs.push([p.created_at, map[pid]]);
+  });
+  return avgLeadTimeDays(pairs);
+}
+function leadTimeOfferToAccept(pipelineItems, month) {
+  const offerMap = firstOccurrenceMap(pipelineItems, ['内定']);
+  const acceptMap = firstOccurrenceMap(pipelineItems, ['内定承諾']);
+  const pairs = [];
+  Object.keys(acceptMap).forEach(function(pid) {
+    if (acceptMap[pid].substring(0,7) !== month || !offerMap[pid]) return;
+    pairs.push([offerMap[pid], acceptMap[pid]]);
+  });
+  return avgLeadTimeDays(pairs);
+}
+function leadTimeInterviewToAccept(pipelineItems, month) {
+  const acceptMap = firstOccurrenceMap(pipelineItems, ['内定承諾']);
+  const pairs = [];
+  Object.keys(acceptMap).forEach(function(pid) {
+    if (acceptMap[pid].substring(0,7) !== month) return;
+    const p = pipelineItems.find(function(x) { return x.id === pid; });
+    if (!p || !p.candidate_id) return;
+    const c = CANDIDATE_DATA.find(function(x) { return x.id === p.candidate_id; });
+    if (c && c.registered_at) pairs.push([c.registered_at, acceptMap[pid]]);
+  });
+  return avgLeadTimeDays(pairs);
+}
+function fmtDays(v) { return v == null ? '-' : Math.round(v*10)/10 + '日'; }
+
+// companies.htmlと同じロジックで、スコアから転職軸タグを導出
+function getCompanyAxisTags(c) {
+  if (!c) return [];
+  const scored = [
+    ['年収アップ', c.score_salary],
+    ['裁量権', c.score_autonomy],
+    ['技術力・スキルアップ', c.score_tech],
+    ['ワークライフバランス', c.score_wlb],
+    ['社風・人間関係', c.score_culture],
+    ['安定性', c.score_brand],
+    ['事業内容への共感', c.score_social],
+  ].filter(([,v]) => v !== null && v !== undefined);
+  let tags = scored.filter(([,v]) => v >= 7).map(([label]) => label);
+  if (tags.length === 0 && scored.length > 0) {
+    scored.sort((a,b) => b[1] - a[1]);
+    tags = [scored[0][0]];
+  }
+  tags.push('事業成長性', 'マネジメント経験');
+  return tags;
+}
+
+// ============ 企業別分析（company_id紐付け済みのpipelineのみ対象） ============
+function renderCompanyAnalysis(pipelineItems, month) {
+  const linked = pipelineItems.filter(p => p.company_id);
+  if (!linked.length) {
+    return '<div style="color:#9aa3b8;font-size:12px">企業紐付け済みのパイプラインがまだありません（今後、提案求人の編集画面で企業を選択すると集計対象になります）</div>';
+  }
+  const byCompany = {};
+  linked.forEach(p => {
+    const name = p.companies ? p.companies.name : '不明';
+    if (!byCompany[name]) byCompany[name] = { pipelines: [] };
+    byCompany[name].pipelines.push(p);
+  });
+  let html = '<table class="media-table"><thead><tr><th>企業</th><th>推薦件数</th><th>内定件数</th><th>内定承諾件数</th><th>内定承諾率</th></tr></thead><tbody>';
+  Object.keys(byCompany).sort().forEach(function(name) {
+    const ps = byCompany[name].pipelines;
+    const rec = ps.filter(p => (p.created_at||'').substring(0,7) === month).length;
+    const off = countPhaseReachedInMonth(ps, '内定', month);
+    const acc = countPhaseReachedInMonth(ps, '内定承諾', month);
+    html += '<tr><td>' + name + '</td><td>' + rec + '</td><td>' + off + '</td><td>' + acc + '</td><td>' + fmtPct(off ? acc/off : null) + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+// ============ 転職軸マッチ度分析 ============
+function renderAxisMatchAnalysis(pipelineItems, month) {
+  const linked = pipelineItems.filter(p => p.company_id && p.candidates && p.candidates.top_priority_axis);
+  const map = firstOccurrenceMap(linked, ['内定承諾']);
+  const decidedThisMonth = Object.keys(map).filter(pid => map[pid].substring(0,7) === month);
+  if (!decidedThisMonth.length) {
+    return '<div style="color:#9aa3b8;font-size:12px">今月、企業紐付け済み＆転職軸が設定されている内定承諾者がまだいません</div>';
+  }
+  let matched = 0;
+  const rows = decidedThisMonth.map(function(pid) {
+    const p = linked.find(x => x.id === pid);
+    const company = ALL_COMPANIES.find(c => c.id === p.company_id) || p.companies;
+    const tags = getCompanyAxisTags(company);
+    const axis = p.candidates.top_priority_axis;
+    const isMatch = tags.includes(axis);
+    if (isMatch) matched++;
+    return { name: company ? company.name : '不明', axis: axis, match: isMatch };
+  });
+  const rate = decidedThisMonth.length ? matched/decidedThisMonth.length : null;
+  let html = kpiCard('転職軸マッチ率', fmtPct(rate), matched + '名 / ' + decidedThisMonth.length + '名（転職軸が企業の特徴タグに含まれていた割合）');
+  html = '<div class="kpi-grid" style="margin-bottom:12px">' + html + '</div>';
+  html += '<table class="media-table"><thead><tr><th>企業</th><th>候補者の転職軸</th><th>マッチ</th></tr></thead><tbody>';
+  rows.forEach(r => { html += '<tr><td>' + r.name + '</td><td>' + r.axis + '</td><td>' + (r.match ? '✅' : '—') + '</td></tr>'; });
+  html += '</tbody></table>';
+  return html;
+}
+
+function renderLeadTimeSection(pipelineItems) {
+  const a = leadTimeInterviewToRecommend(pipelineItems, currentMonth);
+  const b = leadTimeRecommendToFirstInterview(pipelineItems, currentMonth);
+  const c = leadTimeOfferToAccept(pipelineItems, currentMonth);
+  const d = leadTimeInterviewToAccept(pipelineItems, currentMonth);
+  let html = '<div class="kpi-grid">';
+  html += kpiCard('面談→推薦', fmtDays(a), '平均日数');
+  html += kpiCard('推薦→一次面接実施日', fmtDays(b), '平均日数');
+  html += kpiCard('内定→内定承諾', fmtDays(c), '平均日数');
+  html += kpiCard('面談→内定承諾', fmtDays(d), '平均日数（トータル）');
+  html += '</div>';
+  return html;
+}
+
+// ============ クロス集計（媒体×希望年収帯／媒体×職種） ============
+function getSalaryBand(salary) {
+  if (salary == null) return null;
+  return SALARY_BANDS.find(function(b) { return salary >= b.min && salary < b.max; });
+}
+function renderSalaryCrosstab(candidateItems) {
+  let html = '<table class="media-table"><thead><tr><th>媒体</th>' + SALARY_BANDS.map(function(b){return '<th>'+b.label+'</th>';}).join('') + '</tr></thead><tbody>';
+  SOURCE_LIST.forEach(function(source) {
+    const cands = candidateItems.filter(function(c) { return cleanSource(c.source) === source && (c.registered_at||'').substring(0,7) === currentMonth; });
+    html += '<tr><td>' + source + '</td>';
+    SALARY_BANDS.forEach(function(b) {
+      const cnt = cands.filter(function(c) { const band = getSalaryBand(c.desired_salary); return band && band.label === b.label; }).length;
+      html += '<td>' + (cnt || '-') + '</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+function renderJobCrosstab(candidateItems) {
+  let html = '<div style="overflow-x:auto"><table class="media-table"><thead><tr><th>媒体</th>' + JOB_TYPE_LIST.map(function(j){return '<th>'+j+'</th>';}).join('') + '</tr></thead><tbody>';
+  SOURCE_LIST.forEach(function(source) {
+    const cands = candidateItems.filter(function(c) { return cleanSource(c.source) === source && (c.registered_at||'').substring(0,7) === currentMonth; });
+    html += '<tr><td>' + source + '</td>';
+    JOB_TYPE_LIST.forEach(function(job) {
+      const cnt = cands.filter(function(c) { return (c.job_type||'').split(/[,、]/).map(function(s){return s.trim();}).includes(job); }).length;
+      html += '<td>' + (cnt || '-') + '</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
+// ============ 月次一覧（直近6ヶ月） ============
+function renderMonthlyTables(pipelineItems, candidateItems, memberIds) {
+  const months = getRecent6Months(currentMonth);
+  let html = '';
+
+  function metricRow(label, fn) {
+    return '<tr><td>' + label + '</td>' + months.map(function(m) { return '<td>' + fn(m) + '</td>'; }).join('') + '</tr>';
+  }
+
+  html += '<div class="section-title">ファネル件数（直近6ヶ月）</div>';
+  html += '<div style="overflow-x:auto"><table class="media-table"><thead><tr><th>指標</th>' + months.map(function(m){return '<th>'+m+'</th>';}).join('') + '</tr></thead><tbody>';
+  html += metricRow('面談数', function(m) { return candidateItems.filter(function(c){return (c.registered_at||'').substring(0,7)===m;}).length; });
+  html += metricRow('推薦件数（延べ）', function(m) { return countRecommendsDeal(pipelineItems, m); });
+  html += metricRow('推薦人数（ユニーク）', function(m) { return countRecommendsUnique(pipelineItems, m); });
+  html += metricRow('書類選考', function(m) { return countPhaseReachedInMonth(pipelineItems, '書類選考', m); });
+  html += metricRow('カジュアル面談', function(m) { return countPhaseReachedInMonth(pipelineItems, 'カジュアル面談', m); });
+  html += metricRow('一次面接', function(m) { return countPhaseReachedInMonth(pipelineItems, '一次面接', m); });
+  html += metricRow('二次面接', function(m) { return countPhaseReachedInMonth(pipelineItems, '二次～面接', m); });
+  html += metricRow('最終面接', function(m) { return countPhaseReachedInMonth(pipelineItems, '最終面接', m); });
+  html += metricRow('内定（延べ）', function(m) { return countPhaseReachedInMonth(pipelineItems, '内定', m); });
+  html += metricRow('内定承諾', function(m) { return countPhaseReachedInMonth(pipelineItems, '内定承諾', m); });
+  html += '</tbody></table></div>';
+
+  html += '<div class="section-title">遷移率（直近6ヶ月）</div>';
+  html += '<div style="overflow-x:auto"><table class="media-table"><thead><tr><th>指標</th>' + months.map(function(m){return '<th>'+m+'</th>';}).join('') + '</tr></thead><tbody>';
+  function rateAt(m, numPhase, denPhase) {
+    const num = countPhaseReachedInMonth(pipelineItems, numPhase, m);
+    const den = countPhaseReachedInMonth(pipelineItems, denPhase, m);
+    return fmtPct(den ? num/den : null);
+  }
+  html += metricRow('書類通過率', function(m) { return rateAt(m, 'カジュアル面談', '書類選考'); });
+  html += metricRow('一次⇒二次率', function(m) { return rateAt(m, '二次～面接', '一次面接'); });
+  html += metricRow('二次⇒最終率', function(m) { return rateAt(m, '最終面接', '二次～面接'); });
+  html += metricRow('最終⇒内定率', function(m) { return rateAt(m, '内定', '最終面接'); });
+  html += metricRow('内定承諾率', function(m) { return rateAt(m, '内定承諾', '内定'); });
+  html += '</tbody></table></div>';
+
+  html += '<div class="section-title">リスク（直近6ヶ月）</div>';
+  html += '<div style="overflow-x:auto"><table class="media-table"><thead><tr><th>指標</th>' + months.map(function(m){return '<th>'+m+'</th>';}).join('') + '</tr></thead><tbody>';
+  html += metricRow('入社前辞退数', function(m) { return memberIds.reduce(function(s,mid){ const r=RISK_INPUTS.find(function(x){return x.member_id===mid&&x.year_month===m;}); return s+((r&&r.withdrawal_count)||0); },0); });
+  html += metricRow('早期退職数', function(m) { return memberIds.reduce(function(s,mid){ const r=RISK_INPUTS.find(function(x){return x.member_id===mid&&x.year_month===m;}); return s+((r&&r.early_leave_count)||0); },0); });
+  html += '</tbody></table></div>';
+
+  html += '<div class="section-title">媒体別（スカウト数／リード獲得数／返信率、直近6ヶ月）</div>';
+  SOURCE_LIST.forEach(function(source) {
+    html += '<div style="font-size:12px;color:#6B7A99;margin:10px 0 4px">' + source + '</div>';
+    html += '<div style="overflow-x:auto"><table class="media-table"><thead><tr><th>指標</th>' + months.map(function(m){return '<th>'+m+'</th>';}).join('') + '</tr></thead><tbody>';
+    html += metricRow('スカウト数', function(m) { return MANUAL_KPI.filter(function(x){return x.year_month===m&&x.source===source&&memberIds.includes(x.member_id);}).reduce(function(s,x){return s+(x.scout_count||0);},0); });
+    html += metricRow('リード獲得数', function(m) { return MANUAL_KPI.filter(function(x){return x.year_month===m&&x.source===source&&memberIds.includes(x.member_id);}).reduce(function(s,x){return s+(x.lead_count||0);},0); });
+    html += metricRow('返信率', function(m) {
+      const sc = MANUAL_KPI.filter(function(x){return x.year_month===m&&x.source===source&&memberIds.includes(x.member_id);}).reduce(function(s,x){return s+(x.scout_count||0);},0);
+      const ld = MANUAL_KPI.filter(function(x){return x.year_month===m&&x.source===source&&memberIds.includes(x.member_id);}).reduce(function(s,x){return s+(x.lead_count||0);},0);
+      return fmtPct(sc ? ld/sc : null);
+    });
+    html += '</tbody></table></div>';
+  });
+
+  return html;
+}
+
 
 function kpiCard(label, value, sub) {
   return '<div class="kpi-card"><div class="kpi-label">' + label + '</div>' +
@@ -613,6 +970,42 @@ function renderCustomMetrics(pipelineItems, candidateItems) {
   });
   html += '</div>';
   return html;
+}
+
+let editingPhaseTargetMemberId = null;
+function openPhaseTargetModal(memberId) {
+  editingPhaseTargetMemberId = memberId;
+  const memberName = MEMBERS.find(m => m.id === memberId)?.display_name || '';
+  document.getElementById('pt-modal-title').textContent = memberName + ' ' + currentMonth + ' のフェーズ別目標';
+  const t = getTarget(memberId, currentMonth);
+  document.getElementById('pt-doc-screen').value = t ? (t.doc_screen_target ?? '') : '';
+  document.getElementById('pt-casual').value = t ? (t.casual_target ?? '') : '';
+  document.getElementById('pt-first').value = t ? (t.first_interview_target ?? '') : '';
+  document.getElementById('pt-second').value = t ? (t.second_interview_target ?? '') : '';
+  document.getElementById('pt-final').value = t ? (t.final_interview_target ?? '') : '';
+  document.getElementById('pt-save-msg').textContent = '';
+  document.getElementById('phase-target-modal').classList.add('open');
+}
+function closePhaseTargetModal() { document.getElementById('phase-target-modal').classList.remove('open'); }
+
+async function savePhaseTarget() {
+  const g = id => { const v = document.getElementById(id).value; return v ? parseInt(v) : null; };
+  const payload = {
+    member_id: editingPhaseTargetMemberId,
+    year_month: currentMonth,
+    doc_screen_target: g('pt-doc-screen'),
+    casual_target: g('pt-casual'),
+    first_interview_target: g('pt-first'),
+    second_interview_target: g('pt-second'),
+    final_interview_target: g('pt-final'),
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await sb.from('targets').upsert(payload, { onConflict: 'member_id,year_month' });
+  if (error) { alert('保存に失敗しました: ' + error.message); return; }
+  document.getElementById('pt-save-msg').textContent = '✅ 保存しました';
+  const { data } = await sb.from('targets').select('*,members(name,display_name)');
+  TARGETS = data || [];
+  setTimeout(() => { closePhaseTargetModal(); render(); }, 500);
 }
 
 function openCustomModal() {
