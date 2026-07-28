@@ -130,12 +130,14 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 <div id="phase-target-modal">
   <div class="modal-box">
     <div class="modal-header"><span id="pt-modal-title">フェーズ別目標を編集</span><button class="modal-close" onclick="closePhaseTargetModal()">×</button></div>
-    <div class="form-group"><label>書類選考目標（件）</label><input id="pt-doc-screen" type="number"></div>
+    <div class="form-group"><label>推薦目標（件・書類選考目標を兼ねる）</label><input id="pt-recommend" type="number"></div>
     <div class="form-group"><label>カジュアル面談目標（件）</label><input id="pt-casual" type="number"></div>
     <div class="form-group"><label>一次面接目標（件）</label><input id="pt-first" type="number"></div>
     <div class="form-group"><label>二次面接目標（件）</label><input id="pt-second" type="number"></div>
     <div class="form-group"><label>最終面接目標（件）</label><input id="pt-final" type="number"></div>
-    <div style="font-size:11px;color:#9aa3b8;margin:-4px 0 10px">内定・内定承諾の目標はダッシュボード側の目標編集と共通です</div>
+    <div class="form-group"><label>内定目標（件）</label><input id="pt-offer" type="number"></div>
+    <div class="form-group"><label>内定承諾目標（件）</label><input id="pt-accept" type="number"></div>
+    <div style="font-size:11px;color:#9aa3b8;margin:-4px 0 10px">推薦・内定・内定承諾の目標はダッシュボード側の目標編集と同じ値です（どちらから編集しても連動します）</div>
     <div class="form-actions">
       <span class="save-msg" id="pt-save-msg"></span>
       <button class="btn-cancel" onclick="closePhaseTargetModal()">キャンセル</button>
@@ -268,6 +270,16 @@ async function loadData() {
   RISK_INPUTS = riskInputs || [];
 
   document.getElementById('header-badge').textContent = currentMonth;
+  const me = MEMBERS.find(function(m) { return m.email === CURRENT_USER_EMAIL; });
+  if (me) {
+    const myLabel = Object.keys(MEMBER_MAP).find(function(k) { return MEMBER_MAP[k] === me.name; });
+    if (myLabel) {
+      currentMember = myLabel;
+      document.querySelectorAll('.member-tab').forEach(function(t) {
+        t.classList.toggle('active', t.textContent === myLabel);
+      });
+    }
+  }
   render();
 }
 
@@ -467,7 +479,7 @@ function render() {
 
   // 目標値（フェーズ別）と、そこから自動算出した遷移率目標
   const tInterview = getTargetSum('interview_target', currentMonth, memberIds);
-  const tDocScreen = getTargetSum('doc_screen_target', currentMonth, memberIds);
+  const tDocScreen = getTargetSum('recommend_target', currentMonth, memberIds);
   const tCasual = getTargetSum('casual_target', currentMonth, memberIds);
   const tFirst = getTargetSum('first_interview_target', currentMonth, memberIds);
   const tSecond = getTargetSum('second_interview_target', currentMonth, memberIds);
@@ -978,11 +990,13 @@ function openPhaseTargetModal(memberId) {
   const memberName = MEMBERS.find(m => m.id === memberId)?.display_name || '';
   document.getElementById('pt-modal-title').textContent = memberName + ' ' + currentMonth + ' のフェーズ別目標';
   const t = getTarget(memberId, currentMonth);
-  document.getElementById('pt-doc-screen').value = t ? (t.doc_screen_target ?? '') : '';
+  document.getElementById('pt-recommend').value = t ? (t.recommend_target ?? '') : '';
   document.getElementById('pt-casual').value = t ? (t.casual_target ?? '') : '';
   document.getElementById('pt-first').value = t ? (t.first_interview_target ?? '') : '';
   document.getElementById('pt-second').value = t ? (t.second_interview_target ?? '') : '';
   document.getElementById('pt-final').value = t ? (t.final_interview_target ?? '') : '';
+  document.getElementById('pt-offer').value = t ? (t.offer_target ?? '') : '';
+  document.getElementById('pt-accept').value = t ? (t.accept_target ?? '') : '';
   document.getElementById('pt-save-msg').textContent = '';
   document.getElementById('phase-target-modal').classList.add('open');
 }
@@ -993,11 +1007,13 @@ async function savePhaseTarget() {
   const payload = {
     member_id: editingPhaseTargetMemberId,
     year_month: currentMonth,
-    doc_screen_target: g('pt-doc-screen'),
+    recommend_target: g('pt-recommend'),
     casual_target: g('pt-casual'),
     first_interview_target: g('pt-first'),
     second_interview_target: g('pt-second'),
     final_interview_target: g('pt-final'),
+    offer_target: g('pt-offer'),
+    accept_target: g('pt-accept'),
     updated_at: new Date().toISOString(),
   };
   const { error } = await sb.from('targets').upsert(payload, { onConflict: 'member_id,year_month' });

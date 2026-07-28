@@ -219,11 +219,13 @@ const OFFER_PHASES = ['内定','内定承諾','入社待ち','入社済み'];
 const ACCEPT_PHASES = ['内定承諾','入社待ち','入社済み'];
 const INTERVIEW_SCHEDULED_PHASES = ['一次面接','二次～面接','最終面接','内定'];
 
+let CURRENT_USER_EMAIL = null;
 async function doLogin() {
   const email = document.getElementById('email-input').value;
   const password = document.getElementById('pw-input').value;
   const { error } = await sb.auth.signInWithPassword({ email, password });
   if (error) { document.getElementById('lock-error').textContent = 'メールアドレスまたはパスワードが違います'; return; }
+  CURRENT_USER_EMAIL = email;
   showApp();
 }
 async function doLogout() { await sb.auth.signOut(); location.reload(); }
@@ -232,7 +234,7 @@ function showApp() {
   document.getElementById('app').style.display = 'block';
   loadData();
 }
-sb.auth.getSession().then(({ data: { session } }) => { if (session) showApp(); });
+sb.auth.getSession().then(({ data: { session } }) => { if (session) { CURRENT_USER_EMAIL = session.user.email; showApp(); } });
 
 function getMonths() {
   const months = [];
@@ -322,6 +324,16 @@ async function loadData() {
   });
 
   document.getElementById('header-badge').textContent = currentMonth;
+  const me = MEMBERS.find(function(m) { return m.email === CURRENT_USER_EMAIL; });
+  if (me) {
+    const myLabel = Object.keys(MEMBER_MAP).find(function(k) { return MEMBER_MAP[k] === me.name; });
+    if (myLabel) {
+      currentMember = myLabel;
+      document.querySelectorAll('.member-tab').forEach(function(t) {
+        t.classList.toggle('active', t.textContent === myLabel);
+      });
+    }
+  }
   render();
 }
 
@@ -992,6 +1004,11 @@ const TARGET_FIELDS = [
   { key: 'interview_target', label: '面談目標（件）' },
   { key: 'recommend_target', label: '推薦目標（件）' },
   { key: 'recommend_actual', label: '推薦実績（件・手入力）' },
+  { key: 'doc_screen_target', label: '書類選考目標（件）' },
+  { key: 'casual_target', label: 'カジュアル面談目標（件）' },
+  { key: 'first_interview_target', label: '一次面接目標（件）' },
+  { key: 'second_interview_target', label: '二次面接目標（件）' },
+  { key: 'final_interview_target', label: '最終面接目標（件）' },
   { key: 'selection_target', label: '選考目標（件）' },
   { key: 'offer_target', label: '内定目標（件）' },
   { key: 'accept_target', label: '承諾目標（件）' },
