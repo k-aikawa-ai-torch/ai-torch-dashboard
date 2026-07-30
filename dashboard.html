@@ -612,7 +612,6 @@ function fmtRate(rate) {
 
 function fmtSalary(v) {
   if (!v) return '-';
-  if (v >= 10000000) return (v/10000000).toFixed(1) + '億';
   return (v/10000).toFixed(0) + '万';
 }
 
