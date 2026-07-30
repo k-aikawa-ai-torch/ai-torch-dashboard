@@ -105,6 +105,12 @@ const ACCEPT_PHASES = ['内定承諾','入社待ち','入社済み'];
 
 let MEMBERS = [], PIPELINE_DATA = [], CANDIDATE_DATA = [], PHASE_HISTORY = [], OTHER_REVENUE = [];
 let currentMember = '全員';
+let checklistSortKey = 'accept_date';
+let checklistSortDir = -1;
+let checklistFilter = 'all';
+let checklistMemberFilter = '';
+let otherRevSortKey = 'date';
+let otherRevSortDir = -1;
 let CURRENT_USER_EMAIL = null;
 let ME = null;
 
@@ -248,6 +254,13 @@ function sumOtherRevenueForMonths(memberIds, monthList) {
   return { revenue, profit: revenue };
 }
 
+function setOtherRevSort(key) { otherRevSortKey = key; render(); }
+function toggleOtherRevDir() { otherRevSortDir *= -1; render(); }
+function setChecklistFilter(v) { checklistFilter = v; render(); }
+function setChecklistMemberFilter(v) { checklistMemberFilter = v; render(); }
+function setChecklistSort(key) { checklistSortKey = key; render(); }
+function toggleChecklistDir() { checklistSortDir *= -1; render(); }
+
 function render() {
   const el = document.getElementById('content');
   const myPipeline = filterByMemberName(PIPELINE_DATA, currentMember);
@@ -287,7 +300,6 @@ function render() {
   html += plCard('決定ベース（内定承諾日基準）', '#0D40D9', sumDecisionBasis);
   html += plCard('発生ベース（入社日基準）', '#eb6834', sumAccrualBasis);
   html += '</div>';
-  html += '<div class="other-rev-note">※その他売上（コンサル費用・顧問料等）は原価0として粗利＝売上で計上しています</div>';
   html += '</div>';
 
   // ===== その他売上入力 =====
@@ -300,12 +312,32 @@ function render() {
   html += '<div class="form-group" style="flex:1;min-width:160px"><label>内容</label><input type="text" id="or-desc" placeholder="例: 〇〇社 顧問料 7月分"></div>';
   html += '<button class="btn-save" onclick="addOtherRevenue()">＋ 追加</button>';
   html += '</div>';
+  html += '<div class="form-row" style="margin-bottom:10px">';
+  html += '<div class="form-group"><label>ソート</label><select id="or-sort-key" onchange="setOtherRevSort(this.value)">' +
+    ['date:日付','member:担当','category:事業カテゴリ','amount:金額','desc:内容'].map(o => { const [k,l]=o.split(':'); return '<option value="'+k+'"'+(otherRevSortKey===k?' selected':'')+'>'+l+'</option>'; }).join('') + '</select></div>';
+  html += '<button class="btn-save" style="background:#fff;color:#14213D;border:1px solid #DEE7F7" onclick="toggleOtherRevDir()">' + (otherRevSortDir===1?'▲昇順':'▼降順') + '</button>';
+  html += '</div>';
   html += renderOtherRevenueTable(memberIds);
   html += '</div>';
 
   // ===== 事務処理チェックリスト =====
   html += '<div class="section-block">';
   html += '<div class="sec-header"><span class="bar" style="background:#e24b4a"></span><span class="title">事務処理チェックリスト</span><span class="sub">内定承諾以降の案件</span></div>';
+  html += '<div class="form-row" style="margin-bottom:10px">';
+  html += '<div class="form-group"><label>絞り込み</label><select id="chk-filter" onchange="setChecklistFilter(this.value)">' +
+    [['all','すべて表示'],['contract_pending','成約報告がまだ'],['hire_pending','入社がまだ'],['post_hire_pending','入社後フォロー等がまだ'],['payment_pending','入金確認がまだ'],['completed','すべて終わったもの']]
+      .map(([k,l]) => '<option value="'+k+'"'+(checklistFilter===k?' selected':'')+'>'+l+'</option>').join('') + '</select></div>';
+  if (currentMember === '全員') {
+    html += '<div class="form-group"><label>担当で絞る</label><select id="chk-member-filter" onchange="setChecklistMemberFilter(this.value)">' +
+      '<option value=""' + (checklistMemberFilter===''?' selected':'') + '>全員</option>' +
+      MEMBERS.map(m => '<option value="'+m.id+'"'+(checklistMemberFilter===m.id?' selected':'')+'>'+(m.display_name||MEMBER_NAMES[m.name])+'</option>').join('') +
+      '</select></div>';
+  }
+  html += '<div class="form-group"><label>ソート</label><select id="chk-sort-key" onchange="setChecklistSort(this.value)">' +
+    [['candidate','候補者'],['company','企業'],['member','担当'],['source','流入経路'],['accept_date','内定承諾日'],['hire_date','入社日'],['theoretical_salary','理論年収'],['cost','原価'],['profit','粗利'],['revenue','売上金額'],['payment_date','入金日'],['refund_date','出金日']]
+      .map(([k,l]) => '<option value="'+k+'"'+(checklistSortKey===k?' selected':'')+'>'+l+'</option>').join('') + '</select></div>';
+  html += '<button class="btn-save" style="background:#fff;color:#14213D;border:1px solid #DEE7F7" onclick="toggleChecklistDir()">' + (checklistSortDir===1?'▲昇順':'▼降順') + '</button>';
+  html += '</div>';
   html += renderChecklist(myPipeline);
   html += '</div>';
 
@@ -313,15 +345,46 @@ function render() {
 }
 
 function renderOtherRevenueTable(memberIds) {
-  const rows = OTHER_REVENUE.filter(r => currentMember === '全員' || memberIds.includes(r.member_id));
+  let rows = OTHER_REVENUE.filter(r => currentMember === '全員' || memberIds.includes(r.member_id));
   if (!rows.length) return '<div style="color:#9aa3b8;font-size:12px">まだ登録がありません</div>';
+
+  const CATEGORY_OPTS = ['採用コンサル・リテーナー・RPOなど','BW','顧問','その他'];
+
+  function cmp(a, b) {
+    if (otherRevSortKey === 'date') return (a.revenue_date||'').localeCompare(b.revenue_date||'');
+    if (otherRevSortKey === 'member') return ((a.members?.display_name)||'').localeCompare((b.members?.display_name)||'','ja');
+    if (otherRevSortKey === 'category') return (a.category||'').localeCompare(b.category||'','ja');
+    if (otherRevSortKey === 'amount') return (a.amount||0) - (b.amount||0);
+    if (otherRevSortKey === 'desc') return (a.description||'').localeCompare(b.description||'','ja');
+    return 0;
+  }
+  rows = rows.slice().sort((a,b) => otherRevSortDir * cmp(a,b));
+
   let html = '<table class="rev-table"><thead><tr><th>日付</th><th>担当</th><th>事業カテゴリ</th><th>金額</th><th>内容</th><th></th></tr></thead><tbody>';
   rows.forEach(r => {
-    html += '<tr><td>' + r.revenue_date + '</td><td>' + (r.members ? (r.members.display_name||MEMBER_NAMES[r.members.name]) : '-') + '</td><td>' + (r.category||'-') + '</td><td>' + fmtSalary(r.amount) + '</td><td>' + (r.description||'-') + '</td>' +
+    const memberOpts = MEMBERS.map(m => '<option value="'+m.id+'"'+(m.id===r.member_id?' selected':'')+'>'+(m.display_name||MEMBER_NAMES[m.name])+'</option>').join('');
+    const categoryOpts = CATEGORY_OPTS.map(c => '<option'+(c===r.category?' selected':'')+'>'+c+'</option>').join('');
+    html += '<tr>' +
+      '<td><input type="date" class="hire-date-input" value="' + r.revenue_date + '" onchange="saveOtherRevenueField(\'' + r.id + '\',\'revenue_date\',this.value)"></td>' +
+      '<td><select onchange="saveOtherRevenueField(\'' + r.id + '\',\'member_id\',this.value)">' + memberOpts + '</select></td>' +
+      '<td><select onchange="saveOtherRevenueField(\'' + r.id + '\',\'category\',this.value)">' + categoryOpts + '</select></td>' +
+      '<td><input type="number" class="hire-date-input" style="width:100px" value="' + r.amount + '" onchange="saveOtherRevenueField(\'' + r.id + '\',\'amount\',parseFloat(this.value)||0)"></td>' +
+      '<td><input type="text" class="hire-date-input" style="width:180px" value="' + (r.description||'').replace(/"/g,'&quot;') + '" onchange="saveOtherRevenueField(\'' + r.id + '\',\'description\',this.value||null)"></td>' +
       '<td><button class="del-btn" onclick="deleteOtherRevenue(\'' + r.id + '\')">削除</button></td></tr>';
   });
   html += '</tbody></table>';
   return html;
+}
+
+async function saveOtherRevenueField(id, field, value) {
+  const { error } = await sb.from('other_revenue').update({ [field]: value }).eq('id', id);
+  if (error) { alert('保存に失敗しました: ' + error.message); return; }
+  const r = OTHER_REVENUE.find(x => x.id === id);
+  if (r) {
+    r[field] = value;
+    if (field === 'member_id') { r.members = MEMBERS.find(m => m.id === value) || null; }
+  }
+  render();
 }
 
 async function addOtherRevenue() {
@@ -364,17 +427,55 @@ function lastDayOfNextMonth(hireDate) {
 
 function renderChecklist(pipelineItems) {
   const acceptMap = firstOccurrenceMap(pipelineItems, ACCEPT_PHASES);
-  const targets = pipelineItems.filter(p => acceptMap[p.id]);
+  let targets = pipelineItems.filter(p => acceptMap[p.id]);
   if (!targets.length) return '<div style="color:#9aa3b8;font-size:12px">対象の案件がまだありません</div>';
 
   const todayStr = today();
+  const POST_HIRE_KEYS = ['checklist_candidate_followup','checklist_invoice','checklist_company_confirm','checklist_media_report'];
+
+  // ===== 絞り込み =====
+  if (checklistMemberFilter) targets = targets.filter(p => p.member_id === checklistMemberFilter);
+  if (checklistFilter === 'contract_pending') targets = targets.filter(p => !p.checklist_contract_report);
+  else if (checklistFilter === 'hire_pending') targets = targets.filter(p => !p.hire_date);
+  else if (checklistFilter === 'post_hire_pending') targets = targets.filter(p => p.hire_date && POST_HIRE_KEYS.some(k => !p[k]));
+  else if (checklistFilter === 'payment_pending') targets = targets.filter(p => !p.checklist_payment_confirm);
+  else if (checklistFilter === 'completed') targets = targets.filter(p => p.hire_date && CHECKLIST_ITEMS.every(it => p[it.key]));
+
+  if (!targets.length) return '<div style="color:#9aa3b8;font-size:12px">該当する案件がありません</div>';
+
+  // ===== ソート =====
+  function val(p, key) {
+    const acceptDate = acceptMap[p.id] ? acceptMap[p.id].substring(0,10) : '';
+    const revenueForecast = p.candidates?.revenue_forecast || 0;
+    const grossProfit = p.candidates?.gross_profit != null ? p.candidates.gross_profit : null;
+    const cost = grossProfit != null ? revenueForecast - grossProfit : null;
+    switch(key) {
+      case 'candidate': return p.candidates?.name || '';
+      case 'company': return p.companies?.name || '';
+      case 'member': return p.members?.display_name || '';
+      case 'source': return cleanSource(p.candidates?.source);
+      case 'accept_date': return acceptDate;
+      case 'hire_date': return p.hire_date || '';
+      case 'theoretical_salary': return p.theoretical_salary != null ? p.theoretical_salary : revenueForecast;
+      case 'cost': return cost != null ? cost : -Infinity;
+      case 'profit': return grossProfit != null ? grossProfit : -Infinity;
+      case 'revenue': return revenueForecast;
+      case 'payment_date': return p.payment_date || '';
+      case 'refund_date': return p.refund_date || '';
+      default: return '';
+    }
+  }
+  targets = targets.slice().sort((a,b) => {
+    const va = val(a, checklistSortKey), vb = val(b, checklistSortKey);
+    if (typeof va === 'string') return checklistSortDir * va.localeCompare(vb, 'ja');
+    return checklistSortDir * (va - vb);
+  });
+
   let html = '<div style="overflow-x:auto"><table class="checklist-table"><thead><tr>' +
     '<th>候補者</th><th>企業</th><th>担当</th><th>流入経路</th><th>内定承諾日</th><th>入社日</th>' +
-    '<th>理論年収</th><th>原価</th><th>粗利</th><th>入金日</th><th>出金日</th>';
+    '<th>理論年収</th><th>原価</th><th>粗利</th><th>売上金額</th><th>入金日</th><th>出金日</th>';
   CHECKLIST_ITEMS.forEach(it => { html += '<th>' + it.label + '</th>'; });
   html += '<th>備考</th></tr></thead><tbody>';
-
-  targets.sort((a,b) => (acceptMap[b.id]||'').localeCompare(acceptMap[a.id]||''));
 
   targets.forEach(p => {
     const acceptDate = acceptMap[p.id] ? acceptMap[p.id].substring(0,10) : null;
@@ -393,6 +494,7 @@ function renderChecklist(pipelineItems) {
     html += '<td><input type="number" class="hire-date-input" style="width:90px" value="' + theoreticalSalary + '" onchange="saveField(\'' + p.id + '\',\'theoretical_salary\',this.value?parseFloat(this.value):null)"></td>';
     html += '<td style="color:#6B7A99">' + (cost != null ? fmtSalary(cost) : '-') + '</td>';
     html += '<td style="color:#1baf7a;font-weight:500">' + (grossProfit != null ? fmtSalary(grossProfit) : '-') + '</td>';
+    html += '<td style="color:#6B7A99">' + fmtSalary(revenueForecast) + '</td>';
     html += '<td><input type="date" class="hire-date-input" value="' + (p.payment_date||'') + '" onchange="saveField(\'' + p.id + '\',\'payment_date\',this.value||null)"></td>';
     html += '<td><input type="date" class="hire-date-input" value="' + (p.refund_date||'') + '" onchange="saveField(\'' + p.id + '\',\'refund_date\',this.value||null)"></td>';
 
