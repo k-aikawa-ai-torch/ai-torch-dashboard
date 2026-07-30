@@ -793,7 +793,7 @@ function render() {
       const funnelDefs = [
         { label: '面談数', actual: actuals.interviews, tgt: target.interview_target },
         { label: '推薦数', actual: (target.recommend_actual)||0, tgt: target.recommend_target },
-        { label: '選考数', actual: actuals.selections, tgt: target.selection_target },
+        { label: '選考数', actual: actuals.selections, tgt: target.first_interview_target },
       ].filter(function(x) { return x.tgt; });
       const funnelItems = funnelDefs.map(function(x) {
         const paceTarget = x.tgt * elapsedFraction;
@@ -833,7 +833,7 @@ function render() {
     html += '<div class="kpi-grid">';
     html += renderKpiCard('面談数', actuals.interviews, target ? target.interview_target : null, '件', false);
     html += renderRecommendKpiCard(member.id, currentMonth, (target && target.recommend_actual) || 0, target ? target.recommend_target : null);
-    html += renderKpiCard('選考数', actuals.selections, target ? target.selection_target : null, '件', false);
+    html += renderKpiCard('選考数', actuals.selections, target ? target.first_interview_target : null, '件', false);
     html += renderKpiCard('内定数', actuals.offers, target ? target.offer_target : null, '件', false);
     html += renderKpiCard('承諾数', actuals.accepts, target ? target.accept_target : null, '件', false);
     html += '</div>';
@@ -970,7 +970,7 @@ function render() {
         cell(actuals.grossProfitSum, target ? target.gross_profit_target : null, true) +
         cell(actuals.interviews, target ? target.interview_target : null, false) +
         cell((target && target.recommend_actual) || 0, target ? target.recommend_target : null, false) +
-        cell(actuals.selections, target ? target.selection_target : null, false) +
+        cell(actuals.selections, target ? target.first_interview_target : null, false) +
         cell(actuals.offers, target ? target.offer_target : null, false) +
         cell(actuals.accepts, target ? target.accept_target : null, false) +
         '</tr>';
@@ -1004,12 +1004,10 @@ const TARGET_FIELDS = [
   { key: 'interview_target', label: '面談目標（件）' },
   { key: 'recommend_target', label: '推薦目標（件）' },
   { key: 'recommend_actual', label: '推薦実績（件・手入力）' },
-  { key: 'doc_screen_target', label: '書類選考目標（件）' },
   { key: 'casual_target', label: 'カジュアル面談目標（件）' },
   { key: 'first_interview_target', label: '一次面接目標（件）' },
   { key: 'second_interview_target', label: '二次面接目標（件）' },
   { key: 'final_interview_target', label: '最終面接目標（件）' },
-  { key: 'selection_target', label: '選考目標（件）' },
   { key: 'offer_target', label: '内定目標（件）' },
   { key: 'accept_target', label: '承諾目標（件）' },
 ];
@@ -1040,10 +1038,12 @@ function openTargetModal(memberId, month) {
 
 async function saveTarget() {
   const payloads = editingTargetMonths.map(function(m, i) {
+    const existing = TARGETS.find(t => t.member_id === editingTargetMemberId && t.year_month === m) || {};
     const payload = { member_id: editingTargetMemberId, year_month: m, updated_at: new Date().toISOString() };
     TARGET_FIELDS.forEach(function(f) {
       const raw = document.getElementById('tf-' + f.key + '-' + i).value;
-      payload[f.key] = raw ? (f.key === 'accept_target' ? parseFloat(raw) : parseInt(raw)) : null;
+      // 未入力の項目は既存の値をそのまま維持する（他の項目を消してしまわないように）
+      payload[f.key] = raw ? (f.key === 'accept_target' ? parseFloat(raw) : parseInt(raw)) : (existing[f.key] != null ? existing[f.key] : null);
     });
     return payload;
   });

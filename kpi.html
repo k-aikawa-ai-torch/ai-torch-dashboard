@@ -305,27 +305,6 @@ function setMember(m, el) {
 function getTarget(memberId, month) {
   return TARGETS.find(t => t.member_id === memberId && t.year_month === month) || null;
 }
-function sumPhaseTargets(memberIds, month) {
-  const fields = ['interview_target','recommend_target','doc_screen_target','casual_target','first_interview_target','second_interview_target','final_interview_target','offer_target','accept_target'];
-  const out = {};
-  fields.forEach(f => out[f] = 0);
-  memberIds.forEach(function(mid) {
-    const t = getTarget(mid, month);
-    if (!t) return;
-    fields.forEach(f => out[f] += (t[f] || 0));
-  });
-  return out;
-}
-function deriveRateTargets(t) {
-  if (!t) return {};
-  return {
-    docPass: (t.doc_screen_target && t.casual_target) ? t.casual_target/t.doc_screen_target : null,
-    firstToSecond: (t.first_interview_target && t.second_interview_target) ? t.second_interview_target/t.first_interview_target : null,
-    secondToFinal: (t.second_interview_target && t.final_interview_target) ? t.final_interview_target/t.second_interview_target : null,
-    finalToOffer: (t.final_interview_target && t.offer_target) ? t.offer_target/t.final_interview_target : null,
-    acceptRate: (t.offer_target && t.accept_target) ? t.accept_target/t.offer_target : null,
-  };
-}
 
 function filterByMemberName(arr, memberName) {
   if (memberName === '全員') return arr;
