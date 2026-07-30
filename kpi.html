@@ -46,6 +46,9 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 .media-table td:first-child:hover{text-decoration:underline}
 .media-table tr:last-child td{border-bottom:none}
 .edit-toggle-btn{padding:6px 14px;font-size:12px;border:1px solid #DEE7F7;border-radius:8px;background:#fff;cursor:pointer;color:#14213D}
+.tag-filters{display:flex;flex-wrap:wrap;gap:6px}
+.tag{padding:5px 12px;border:1px solid #DEE7F7;border-radius:20px;font-size:12px;cursor:pointer;background:#fff;color:#6B7A99;white-space:nowrap;transition:all 0.15s;user-select:none}
+.tag.on{background:#14213D;color:#fff;border-color:#14213D}
 .edit-toggle-btn.on{background:#14213D;color:#fff;border-color:#14213D}
 .media-input{width:64px;height:26px;padding:0 4px;border:1px solid #DEE7F7;border-radius:4px;font-size:12px;text-align:center}
 #media-modal,#custom-modal,#phase-target-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center}
@@ -128,17 +131,32 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
   </div>
 </div>
 
+<div id="media-settings-modal">
+  <div class="modal-box">
+    <div class="modal-header"><span>集計対象媒体の設定</span><button class="modal-close" onclick="closeMediaSettingsModal()">×</button></div>
+    <div style="font-size:12px;color:#6B7A99;margin-bottom:6px">スカウト通数にカウントする媒体（チェックしたものだけファネルのスカウト通数に合算されます）</div>
+    <div class="tag-filters" id="ms-scout-media" style="margin-bottom:16px"></div>
+    <div style="font-size:12px;color:#6B7A99;margin-bottom:6px">返信率の計算から除外する媒体（面談数には引き続きカウントされます。例：レバテックダイレクトなど自分でスカウトを打たない媒体）</div>
+    <div class="tag-filters" id="ms-exclude-media" style="margin-bottom:16px"></div>
+    <div class="form-actions">
+      <button class="btn-cancel" onclick="closeMediaSettingsModal()">キャンセル</button>
+      <button class="btn-save" onclick="saveMediaSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
 <div id="phase-target-modal">
   <div class="modal-box">
     <div class="modal-header"><span id="pt-modal-title">フェーズ別目標を編集</span><button class="modal-close" onclick="closePhaseTargetModal()">×</button></div>
+    <div class="form-group"><label>スカウト通数目標（件）</label><input id="pt-scout" type="number"></div>
+    <div class="form-group"><label>面談目標（件）</label><input id="pt-interview" type="number"></div>
     <div class="form-group"><label>推薦目標（件・書類選考目標を兼ねる）</label><input id="pt-recommend" type="number"></div>
     <div class="form-group"><label>カジュアル面談目標（件）</label><input id="pt-casual" type="number"></div>
     <div class="form-group"><label>一次面接目標（件）</label><input id="pt-first" type="number"></div>
-    <div class="form-group"><label>二次面接目標（件）</label><input id="pt-second" type="number"></div>
     <div class="form-group"><label>最終面接目標（件）</label><input id="pt-final" type="number"></div>
     <div class="form-group"><label>内定目標（件）</label><input id="pt-offer" type="number"></div>
     <div class="form-group"><label>内定承諾目標（件）</label><input id="pt-accept" type="number"></div>
-    <div style="font-size:11px;color:#9aa3b8;margin:-4px 0 10px">推薦・内定・内定承諾の目標はダッシュボード側の目標編集と同じ値です（どちらから編集しても連動します）</div>
+    <div style="font-size:11px;color:#9aa3b8;margin:-4px 0 10px">推薦・内定・内定承諾の目標はダッシュボード側の目標編集と同じ値です（どちらから編集しても連動します）。二次面接目標はカスタム指標でのみ使用するため、ここでは編集しません</div>
     <div class="form-actions">
       <span class="save-msg" id="pt-save-msg"></span>
       <button class="btn-cancel" onclick="closePhaseTargetModal()">キャンセル</button>
@@ -169,7 +187,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const MEMBER_MAP = {'相川':'aikawa_kenta','永井':'nagai_yudai','會澤':'aizawa_yuma'};
 const MEMBER_NAMES = {'aikawa_kenta':'相川','nagai_yudai':'永井','aizawa_yuma':'會澤'};
-const SOURCE_LIST = ['スカウト（ビズリーチ）','レバテックダイレクト','スカウト（LinkedIn）','スカウト（AMBI）','スカウト（YOUTRUST）','リファラル（求職者紹介）','リファラル（社員経由）','自社HP','アライアンス'];
+const SOURCE_LIST = ['スカウト（ビズリーチ）','レバテックダイレクト','スカウト（LinkedIn）','スカウト（AMBI）','スカウト（YOUTRUST）','スカウト（オープンワーク）','スカウト（DodaX）','リファラル（求職者紹介）','リファラル（社員経由）','自社HP','アライアンス'];
 const JOB_TYPE_LIST = ['CxO','SRE/クラウドエンジニア','開発エンジニア','AI/DS','デザイナー','インフラエンジニア','コンサル/PM','PdM','QA','マーケター','WEBディレ','人事','Bizdev','営業','その他'];
 const SALARY_BANDS = [
   { label: '〜400万', min: 0, max: 4000000 },
@@ -185,6 +203,7 @@ let currentMember = '全員';
 let currentMonth = '';
 let editMode = false;
 let CURRENT_USER_EMAIL = null;
+let ME = null;
 
 async function doLogin() {
   const email = document.getElementById('email-input').value;
@@ -272,6 +291,7 @@ async function loadData() {
 
   document.getElementById('header-badge').textContent = currentMonth;
   const me = MEMBERS.find(function(m) { return m.email === CURRENT_USER_EMAIL; });
+  ME = me || null;
   if (me) {
     const myLabel = Object.keys(MEMBER_MAP).find(function(k) { return MEMBER_MAP[k] === me.name; });
     if (myLabel) {
@@ -413,7 +433,7 @@ const BASE_METRIC_OPTIONS = [
   { key: 'recommend_deal', label: '推薦件数（延べ）' },
   { key: 'recommend_unique', label: '推薦人数（ユニーク）' },
   { key: 'recommends', label: '推薦数（手入力合計）' },
-  { key: 'doc_screen', label: '書類選考到達数' },
+  { key: 'doc_screen', label: '書類選考到達数（フェーズ）' },
   { key: 'casual', label: 'カジュアル面談到達数' },
   { key: 'first_interview', label: '一次面接到達数' },
   { key: 'second_interview', label: '二次面接到達数' },
@@ -423,6 +443,8 @@ const BASE_METRIC_OPTIONS = [
   { key: 'accept', label: '内定承諾到達数' },
   { key: 'revenue', label: '売上実績（円）' },
   { key: 'profit', label: '粗利実績（円）' },
+  { key: 'withdrawal', label: '入社前辞退数（手入力）' },
+  { key: 'early_leave', label: '早期退職数（手入力）' },
 ];
 
 function render() {
@@ -433,64 +455,68 @@ function render() {
 
   let html = '';
 
-  // ===== ファネル（推薦〜内定承諾） =====
+  // ===== ファネル（スカウト〜内定承諾） =====
   const interviews = computeBaseMetric('interviews', myPipeline, myCandidates, currentMonth);
   const recDeal = countRecommendsDeal(myPipeline, currentMonth);
   const recUnique = countRecommendsUnique(myPipeline, currentMonth);
-  const docScreen = countPhaseReachedInMonth(myPipeline, '書類選考', currentMonth);
   const casual = countPhaseReachedInMonth(myPipeline, 'カジュアル面談', currentMonth);
   const firstI = countPhaseReachedInMonth(myPipeline, '一次面接', currentMonth);
-  const secondI = countPhaseReachedInMonth(myPipeline, '二次～面接', currentMonth);
   const finalI = countPhaseReachedInMonth(myPipeline, '最終面接', currentMonth);
   const offerDeal = countPhaseReachedInMonth(myPipeline, '内定', currentMonth);
   const offerUnique = countUniquePhaseReachedInMonth(myPipeline, '内定', currentMonth);
   const acceptDeal = countPhaseReachedInMonth(myPipeline, '内定承諾', currentMonth);
   const revenue = computeBaseMetric('revenue', myPipeline, myCandidates, currentMonth);
 
+  const scoutCount = computeScoutCount(currentMonth, memberIds);
+  const replyRateInfo = computeReplyRate(currentMonth, memberIds);
+
   const recommendActual = memberIds.reduce((s,mid) => { const t = TARGETS.find(t => t.member_id===mid && t.year_month===currentMonth); return s + ((t && t.recommend_actual) || 0); }, 0);
   const avgRecommendPerPerson = recUnique ? recommendActual / recUnique : null;
   const interviewToRecommendRate = interviews ? recUnique/interviews : null;
-  const docPassRate = docScreen ? casual/docScreen : null;
-  const firstToSecondRate = firstI ? secondI/firstI : null;
-  const secondToFinalRate = secondI ? finalI/secondI : null;
+  const recToCasualRate = recUnique ? casual/recUnique : null;
+  const firstToFinalRate = firstI ? finalI/firstI : null;
   const finalToOfferRate = finalI ? offerDeal/finalI : null;
   const acceptRate = offerDeal ? acceptDeal/offerDeal : null;
   const decidedUnitPrice = acceptDeal ? revenue/acceptDeal : null;
 
   // 目標値（フェーズ別）と、そこから自動算出した遷移率目標
+  const tScout = getTargetSum('scout_target', currentMonth, memberIds);
   const tInterview = getTargetSum('interview_target', currentMonth, memberIds);
-  const tDocScreen = getTargetSum('recommend_target', currentMonth, memberIds);
+  const tRecommend = getTargetSum('recommend_target', currentMonth, memberIds);
   const tCasual = getTargetSum('casual_target', currentMonth, memberIds);
   const tFirst = getTargetSum('first_interview_target', currentMonth, memberIds);
-  const tSecond = getTargetSum('second_interview_target', currentMonth, memberIds);
   const tFinal = getTargetSum('final_interview_target', currentMonth, memberIds);
   const tOffer = getTargetSum('offer_target', currentMonth, memberIds);
   const tAccept = getTargetSum('accept_target', currentMonth, memberIds);
-  const tDocPassRate = tDocScreen ? tCasual/tDocScreen : null;
-  const tFirstToSecondRate = tFirst ? tSecond/tFirst : null;
-  const tSecondToFinalRate = tSecond ? tFinal/tSecond : null;
+  const tRecToCasualRate = tRecommend ? tCasual/tRecommend : null;
+  const tFirstToFinalRate = tFirst ? tFinal/tFirst : null;
   const tFinalToOfferRate = tFinal ? tOffer/tFinal : null;
   const tAcceptRate = tOffer ? tAccept/tOffer : null;
 
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">ファネル（推薦〜内定承諾）</span><span class="sub">' + currentMonth + '・下段は目標値</span></div>';
+  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">ファネル（スカウト〜内定承諾）</span><span class="sub">' + currentMonth + '・下段は目標値</span></div>';
+  html += '<div style="text-align:right;margin-bottom:10px;display:flex;justify-content:flex-end;gap:8px">';
+  html += '<button class="edit-toggle-btn" onclick="openMediaSettingsModal()">⚙️ 集計対象媒体を設定</button>';
   if (currentMember !== '全員') {
     const meForTarget = MEMBERS.find(m => m.name === MEMBER_MAP[currentMember]);
-    html += '<div style="text-align:right;margin-bottom:10px"><button class="edit-toggle-btn" onclick="openPhaseTargetModal(\'' + meForTarget.id + '\')">✏️ フェーズ別目標を編集</button></div>';
+    html += '<button class="edit-toggle-btn" onclick="openPhaseTargetModal(\'' + meForTarget.id + '\')">✏️ フェーズ別目標を編集</button>';
   }
+  html += '</div>';
   html += renderFunnel([
-    { label: '面談', value: interviews, target: tInterview || null },
-    { label: '推薦', value: recUnique, rate: interviewToRecommendRate },
-    { label: '書類選考', value: docScreen, target: tDocScreen || null },
-    { label: 'カジュアル面談', value: casual, rate: docPassRate, targetRate: tDocPassRate, target: tCasual || null },
+    { label: 'スカウト通数', value: scoutCount, target: tScout || null },
+    { label: '面談', value: interviews, rate: replyRateInfo.rate, target: tInterview || null },
+    { label: '推薦', value: recUnique, rate: interviewToRecommendRate, target: tRecommend || null },
+    { label: 'カジュアル面談', value: casual, rate: recToCasualRate, targetRate: tRecToCasualRate, target: tCasual || null },
     { label: '一次面接', value: firstI, target: tFirst || null },
-    { label: '二次面接', value: secondI, rate: firstToSecondRate, targetRate: tFirstToSecondRate, target: tSecond || null },
-    { label: '最終面接', value: finalI, rate: secondToFinalRate, targetRate: tSecondToFinalRate, target: tFinal || null },
+    { label: '最終面接', value: finalI, rate: firstToFinalRate, targetRate: tFirstToFinalRate, target: tFinal || null },
     { label: '内定', value: offerDeal, rate: finalToOfferRate, targetRate: tFinalToOfferRate, target: tOffer || null },
     { label: '内定承諾', value: acceptDeal, rate: acceptRate, targetRate: tAcceptRate, target: tAccept || null },
   ]);
+  html += '<div style="font-size:11px;color:#9aa3b8;margin-top:6px">返信率は「面談」の遷移率として表示・集計対象媒体は⚙️から設定できます（除外した媒体の面談数は引き続きカウントされます）</div>';
 
   html += '<div class="kpi-grid" style="margin-top:16px">';
+  html += kpiCard('スカウト通数', scoutCount + '件', '⚙️で選択した媒体の合算');
+  html += kpiCard('返信率', fmtPct(replyRateInfo.rate), replyRateInfo.scoutSum + '件 → ' + replyRateInfo.leadSum + '件（除外媒体を除く）');
   html += kpiCard('推薦', recUnique + '名<span style="font-size:12px;color:#6B7A99"> （' + recDeal + '件）</span>', '延べ件数（人）');
   html += kpiCard('平均推薦数/人', avgRecommendPerPerson!=null ? Math.round(avgRecommendPerPerson*10)/10 + '件' : '-', '推薦数(手入力計' + recommendActual + '件) ÷ 推薦人数');
   html += kpiCard('内定', offerDeal + '件<span style="font-size:12px;color:#6B7A99"> （' + offerUnique + '名）</span>', '延べ件数（ユニーク人数）');
@@ -725,15 +751,23 @@ function renderCompanyAnalysis(pipelineItems, month) {
     if (!byCompany[name]) byCompany[name] = { pipelines: [] };
     byCompany[name].pipelines.push(p);
   });
-  let html = '<table class="media-table"><thead><tr><th>企業</th><th>推薦件数</th><th>内定件数</th><th>内定承諾件数</th><th>内定承諾率</th></tr></thead><tbody>';
+  let html = '<div style="overflow-x:auto"><table class="media-table"><thead><tr>' +
+    '<th>企業</th><th>推薦件数</th><th>推薦→一次率</th><th>一次面接件数</th><th>一次→最終率</th><th>最終面接件数</th><th>最終→内定率</th><th>内定件数</th><th>内定→承諾率</th><th>内定承諾件数</th>' +
+    '</tr></thead><tbody>';
   Object.keys(byCompany).sort().forEach(function(name) {
     const ps = byCompany[name].pipelines;
     const rec = ps.filter(p => (p.created_at||'').substring(0,7) === month).length;
+    const first = countPhaseReachedInMonth(ps, '一次面接', month);
+    const final = countPhaseReachedInMonth(ps, '最終面接', month);
     const off = countPhaseReachedInMonth(ps, '内定', month);
     const acc = countPhaseReachedInMonth(ps, '内定承諾', month);
-    html += '<tr><td>' + name + '</td><td>' + rec + '</td><td>' + off + '</td><td>' + acc + '</td><td>' + fmtPct(off ? acc/off : null) + '</td></tr>';
+    html += '<tr><td>' + name + '</td><td>' + rec + '</td><td>' + fmtPct(rec ? first/rec : null) + '</td>' +
+      '<td>' + first + '</td><td>' + fmtPct(first ? final/first : null) + '</td>' +
+      '<td>' + final + '</td><td>' + fmtPct(final ? off/final : null) + '</td>' +
+      '<td>' + off + '</td><td>' + fmtPct(off ? acc/off : null) + '</td>' +
+      '<td>' + acc + '</td></tr>';
   });
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
   return html;
 }
 
@@ -883,7 +917,10 @@ function toggleEditMode() { editMode = !editMode; render(); }
 
 function renderMediaTable() {
   const memberIds = currentMember === '全員' ? MEMBERS.map(m => m.id) : [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
-  let html = '<table class="media-table"><thead><tr><th>媒体</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>面談数</th><th>選考数</th><th>内定数</th><th>承諾数</th></tr></thead><tbody>';
+  let html = '<div style="overflow-x:auto"><table class="media-table"><thead><tr>' +
+    '<th>媒体</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>面談数</th><th>面談→推薦率</th>' +
+    '<th>求人提案数</th><th>推薦人数</th><th>推薦→内定率</th><th>内定数</th><th>内定→承諾率</th><th>承諾数</th>' +
+    '</tr></thead><tbody>';
   SOURCE_LIST.forEach(function(source) {
     const scoutTotal = MANUAL_KPI.filter(m => m.year_month===currentMonth && m.source===source && memberIds.includes(m.member_id)).reduce((s,m)=>s+(m.scout_count||0),0);
     const leadTotal = MANUAL_KPI.filter(m => m.year_month===currentMonth && m.source===source && memberIds.includes(m.member_id)).reduce((s,m)=>s+(m.lead_count||0),0);
@@ -893,9 +930,14 @@ function renderMediaTable() {
     const srcCandidateIds = new Set(srcCandidates.map(c => c.id));
     const interviews = srcCandidates.filter(c => (c.registered_at||'').substring(0,7) === currentMonth).length;
     const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
-    const selections = countPhaseReachedInMonth(srcPipeline, 'カジュアル面談', currentMonth);
+    const recDeal = countRecommendsDeal(srcPipeline, currentMonth);
+    const recUnique = countRecommendsUnique(srcPipeline, currentMonth);
     const offers = countPhaseReachedInMonth(srcPipeline, '内定', currentMonth);
     const accepts = countPhaseReachedInMonth(srcPipeline, '内定承諾', currentMonth);
+
+    const interviewToRecRate = interviews ? recUnique/interviews : null;
+    const recToOfferRate = recUnique ? offers/recUnique : null;
+    const offerToAcceptRate = offers ? accepts/offers : null;
 
     html += '<tr>';
     html += '<td onclick="openMediaModal(\'' + source + '\')">' + source + '</td>';
@@ -907,10 +949,18 @@ function renderMediaTable() {
     } else {
       html += '<td>' + scoutTotal + '</td><td>' + leadTotal + '</td>';
     }
-    html += '<td>' + fmtPct(replyRate) + '</td><td>' + interviews + '</td><td>' + selections + '</td><td>' + offers + '</td><td>' + accepts + '</td>';
+    html += '<td>' + fmtPct(replyRate) + '</td>';
+    html += '<td>' + interviews + '</td>';
+    html += '<td>' + fmtPct(interviewToRecRate) + '</td>';
+    html += '<td>' + recDeal + '</td>';
+    html += '<td>' + recUnique + '</td>';
+    html += '<td>' + fmtPct(recToOfferRate) + '</td>';
+    html += '<td>' + offers + '</td>';
+    html += '<td>' + fmtPct(offerToAcceptRate) + '</td>';
+    html += '<td>' + accepts + '</td>';
     html += '</tr>';
   });
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
   return html;
 }
 
@@ -965,15 +1015,68 @@ function renderCustomMetrics(pipelineItems, candidateItems) {
 }
 
 let editingPhaseTargetMemberId = null;
+// ============ 集計対象媒体の設定（スカウト通数・返信率） ============
+function openMediaSettingsModal() {
+  if (!ME) { alert('ログイン情報が取得できませんでした'); return; }
+  const scoutSelected = new Set(ME.scout_count_media || []);
+  const excludeSelected = new Set(ME.reply_rate_excluded_media || []);
+  document.getElementById('ms-scout-media').innerHTML = SOURCE_LIST.map(s =>
+    '<span class="tag' + (scoutSelected.has(s)?' on':'') + '" data-media="' + s + '" onclick="this.classList.toggle(\'on\')">' + s + '</span>'
+  ).join('');
+  document.getElementById('ms-exclude-media').innerHTML = SOURCE_LIST.map(s =>
+    '<span class="tag' + (excludeSelected.has(s)?' on':'') + '" data-media="' + s + '" onclick="this.classList.toggle(\'on\')">' + s + '</span>'
+  ).join('');
+  document.getElementById('media-settings-modal').classList.add('open');
+}
+function closeMediaSettingsModal() { document.getElementById('media-settings-modal').classList.remove('open'); }
+
+async function saveMediaSettings() {
+  const scoutMedia = Array.from(document.querySelectorAll('#ms-scout-media .tag.on')).map(el => el.dataset.media);
+  const excludeMedia = Array.from(document.querySelectorAll('#ms-exclude-media .tag.on')).map(el => el.dataset.media);
+  const { error } = await sb.from('members').update({ scout_count_media: scoutMedia, reply_rate_excluded_media: excludeMedia }).eq('id', ME.id);
+  if (error) { alert('保存に失敗しました: ' + error.message); return; }
+  ME.scout_count_media = scoutMedia;
+  ME.reply_rate_excluded_media = excludeMedia;
+  const m = MEMBERS.find(x => x.id === ME.id);
+  if (m) { m.scout_count_media = scoutMedia; m.reply_rate_excluded_media = excludeMedia; }
+  closeMediaSettingsModal();
+  render();
+}
+
+function computeScoutCount(month, memberIds) {
+  let total = 0;
+  memberIds.forEach(mid => {
+    const m = MEMBERS.find(x => x.id === mid);
+    const selected = (m && m.scout_count_media) || [];
+    if (!selected.length) return;
+    total += MANUAL_KPI.filter(r => r.year_month === month && r.member_id === mid && selected.includes(r.source)).reduce((s,r) => s + (r.scout_count||0), 0);
+  });
+  return total;
+}
+
+function computeReplyRate(month, memberIds) {
+  let scoutSum = 0, leadSum = 0;
+  memberIds.forEach(mid => {
+    const m = MEMBERS.find(x => x.id === mid);
+    const excluded = new Set((m && m.reply_rate_excluded_media) || []);
+    MANUAL_KPI.filter(r => r.year_month === month && r.member_id === mid && !excluded.has(r.source)).forEach(r => {
+      scoutSum += (r.scout_count||0);
+      leadSum += (r.lead_count||0);
+    });
+  });
+  return { scoutSum, leadSum, rate: scoutSum ? leadSum/scoutSum : null };
+}
+
 function openPhaseTargetModal(memberId) {
   editingPhaseTargetMemberId = memberId;
   const memberName = MEMBERS.find(m => m.id === memberId)?.display_name || '';
   document.getElementById('pt-modal-title').textContent = memberName + ' ' + currentMonth + ' のフェーズ別目標';
   const t = getTarget(memberId, currentMonth);
+  document.getElementById('pt-scout').value = t ? (t.scout_target ?? '') : '';
+  document.getElementById('pt-interview').value = t ? (t.interview_target ?? '') : '';
   document.getElementById('pt-recommend').value = t ? (t.recommend_target ?? '') : '';
   document.getElementById('pt-casual').value = t ? (t.casual_target ?? '') : '';
   document.getElementById('pt-first').value = t ? (t.first_interview_target ?? '') : '';
-  document.getElementById('pt-second').value = t ? (t.second_interview_target ?? '') : '';
   document.getElementById('pt-final').value = t ? (t.final_interview_target ?? '') : '';
   document.getElementById('pt-offer').value = t ? (t.offer_target ?? '') : '';
   document.getElementById('pt-accept').value = t ? (t.accept_target ?? '') : '';
@@ -987,10 +1090,11 @@ async function savePhaseTarget() {
   const payload = {
     member_id: editingPhaseTargetMemberId,
     year_month: currentMonth,
+    scout_target: g('pt-scout'),
+    interview_target: g('pt-interview'),
     recommend_target: g('pt-recommend'),
     casual_target: g('pt-casual'),
     first_interview_target: g('pt-first'),
-    second_interview_target: g('pt-second'),
     final_interview_target: g('pt-final'),
     offer_target: g('pt-offer'),
     accept_target: g('pt-accept'),
