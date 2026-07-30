@@ -36,7 +36,7 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 .form-row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px}
 .form-group{display:flex;flex-direction:column;gap:4px}
 .form-group label{font-size:11px;color:#6B7A99;font-weight:500}
-.form-group input{height:36px;padding:0 10px;border:1px solid #DEE7F7;border-radius:8px;font-size:13px;background:#fff}
+.form-group input, .form-group select{height:36px;padding:0 10px;border:1px solid #DEE7F7;border-radius:8px;font-size:13px;background:#fff}
 .btn-save{padding:0 20px;height:36px;background:#14213D;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer}
 .rev-table, .checklist-table{width:100%;border-collapse:collapse;font-size:12.5px;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #DEE7F7}
 .rev-table th, .checklist-table th{background:#f9f9f7;font-size:11px;font-weight:500;color:#6B7A99;padding:8px 10px;text-align:left;border-bottom:1px solid #DEE7F7;white-space:nowrap}
@@ -141,7 +141,7 @@ async function loadData() {
   const [{ data: members }, { data: candidates }, pipeline, phaseHistory, { data: otherRevenue }] = await Promise.all([
     sb.from('members').select('*'),
     sb.from('candidates').select('*,members(name,display_name)'),
-    fetchAllRange('pipeline', '*, members(name,display_name), candidates(name,revenue_forecast), companies(name)'),
+    fetchAllRange('pipeline', '*, members(name,display_name), candidates(name,source,revenue_forecast,gross_profit), companies(name)'),
     fetchAllRange('pipeline_phase_history', '*'),
     sb.from('other_revenue').select('*,members(name,display_name)').order('revenue_date', { ascending: false }),
   ]);
@@ -178,6 +178,28 @@ function filterByMemberName(arr, memberName) {
 }
 
 function today() { return new Date().toISOString().substring(0,10); }
+function cleanSource(s) { return (s || '').replace(/^[（(]+/, '').trim(); }
+
+// 8月始まり・4ヶ月区切りの期を計算する（ダッシュボードと同じ定義）
+function getTermInfo(ym) {
+  const [y, mo] = ym.split('-').map(Number);
+  const fyStartYear = mo >= 8 ? y : y - 1;
+  const monthIndexInFY = (mo - 8 + 12) % 12;
+  const termIndex = Math.floor(monthIndexInFY / 4);
+  const termNames = ['第1期','第2期','第3期'];
+  const termStartOffset = termIndex * 4;
+  const months = [];
+  for (let i = 0; i < 4; i++) {
+    const d = new Date(fyStartYear, 7 + termStartOffset + i, 1);
+    months.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
+  }
+  const yearMonths = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(fyStartYear, 7 + i, 1);
+    yearMonths.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
+  }
+  return { termLabel: termNames[termIndex], termRangeLabel: months[0] + '〜' + months[3], months, yearLabel: fyStartYear + '/8〜' + (fyStartYear+1) + '/7', yearMonths };
+}
 function fmtSalary(v) { if (v==null) return '¥0'; return '¥' + Math.round(v).toLocaleString(); }
 
 function firstOccurrenceMap(pipelineItems, phases) {
@@ -189,25 +211,41 @@ function firstOccurrenceMap(pipelineItems, phases) {
   return map;
 }
 
-function sumActualRevenueThisMonth(pipelineItems) {
-  const month = today().substring(0,7);
+// ===== 決定ベース（内定承諾日基準）と発生ベース（入社日基準）の売上・粗利集計 =====
+function sumDecisionBasis(pipelineItems, monthList) {
   const map = firstOccurrenceMap(pipelineItems, ACCEPT_PHASES);
   const counted = new Set();
-  let sum = 0;
+  let revenue = 0, profit = 0;
   Object.keys(map).forEach(pid => {
-    if (map[pid].substring(0,7) !== month) return;
+    if (!monthList.includes(map[pid].substring(0,7))) return;
     const p = pipelineItems.find(x => x.id === pid);
     if (!p || !p.candidate_id || counted.has(p.candidate_id)) return;
     counted.add(p.candidate_id);
-    if (p.candidates?.revenue_forecast) sum += p.candidates.revenue_forecast;
+    if (p.candidates?.revenue_forecast) revenue += p.candidates.revenue_forecast;
+    if (p.candidates?.gross_profit != null) profit += p.candidates.gross_profit;
   });
-  return sum;
+  return { revenue, profit };
 }
 
-function sumOtherRevenueThisMonth(memberIds) {
-  const month = today().substring(0,7);
-  return OTHER_REVENUE.filter(r => r.revenue_date.substring(0,7) === month && (currentMember === '全員' || memberIds.includes(r.member_id)))
-    .reduce((s,r) => s + (r.amount||0), 0);
+function sumAccrualBasis(pipelineItems, monthList) {
+  const counted = new Set();
+  let revenue = 0, profit = 0;
+  pipelineItems.forEach(p => {
+    if (!p.hire_date || !monthList.includes(p.hire_date.substring(0,7))) return;
+    if (!p.candidate_id || counted.has(p.candidate_id)) return;
+    counted.add(p.candidate_id);
+    if (p.candidates?.revenue_forecast) revenue += p.candidates.revenue_forecast;
+    if (p.candidates?.gross_profit != null) profit += p.candidates.gross_profit;
+  });
+  return { revenue, profit };
+}
+
+function sumOtherRevenueForMonths(memberIds, monthList) {
+  let revenue = 0;
+  OTHER_REVENUE.filter(r => monthList.includes(r.revenue_date.substring(0,7)) && (currentMember === '全員' || memberIds.includes(r.member_id)))
+    .forEach(r => { revenue += (r.amount||0); });
+  // 原価0（人材紹介以外の売上は粗利＝売上そのものとして扱う）
+  return { revenue, profit: revenue };
 }
 
 function render() {
@@ -217,20 +255,40 @@ function render() {
 
   let html = '';
 
-  // ===== 売上まとめ =====
-  const recruitingRevenue = sumActualRevenueThisMonth(myPipeline);
-  const otherRevenue = sumOtherRevenueThisMonth(memberIds);
-  const total = recruitingRevenue + otherRevenue;
+  // ===== P/L：決定ベース／発生ベース × 月・期・年 =====
+  const term = getTermInfo(today().substring(0,7));
+  const curMonth = [today().substring(0,7)];
+
+  function combined(fn, monthList) {
+    const rec = fn(myPipeline, monthList);
+    const oth = sumOtherRevenueForMonths(memberIds, monthList);
+    return { revenue: rec.revenue + oth.revenue, profit: rec.profit + oth.profit };
+  }
+
+  function plRow(label, data) {
+    return '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0f0f0;font-size:13px">' +
+      '<span style="color:#6B7A99">' + label + '</span>' +
+      '<span>売上 <strong>' + fmtSalary(data.revenue) + '</strong>　粗利 <strong style="color:#1baf7a">' + fmtSalary(data.profit) + '</strong></span></div>';
+  }
+
+  function plCard(title, color, fn) {
+    let c = '<div class="hero-card" style="flex:1;min-width:280px">';
+    c += '<div class="hero-label" style="color:' + color + ';font-weight:600">' + title + '</div>';
+    c += plRow('今月（' + curMonth[0] + '）', combined(fn, curMonth));
+    c += plRow(term.termLabel + '（' + term.termRangeLabel + '）', combined(fn, term.months));
+    c += plRow('年間（' + term.yearLabel + '）', combined(fn, term.yearMonths));
+    c += '</div>';
+    return c;
+  }
 
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">今月の売上まとめ</span><span class="sub">' + today().substring(0,7) + '</span></div>';
-  html += '<div class="hero-card">';
-  html += '<div class="hero-label">合算売上（人材紹介＋その他）</div>';
-  html += '<div class="hero-value">' + fmtSalary(total) + '</div>';
-  html += '<div style="display:flex;gap:24px;margin-top:14px">';
-  html += '<div><div class="hero-label">人材紹介売上</div><div style="font-size:20px;font-weight:600">' + fmtSalary(recruitingRevenue) + '</div></div>';
-  html += '<div><div class="hero-label" style="color:#c0c5cf">その他売上</div><div style="font-size:14px;color:#9aa3b8">' + fmtSalary(otherRevenue) + '</div></div>';
-  html += '</div></div></div>';
+  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">売上・粗利（P/L）</span><span class="sub">人材紹介＋その他売上の合算</span></div>';
+  html += '<div style="display:flex;gap:16px;flex-wrap:wrap">';
+  html += plCard('決定ベース（内定承諾日基準）', '#0D40D9', sumDecisionBasis);
+  html += plCard('発生ベース（入社日基準）', '#eb6834', sumAccrualBasis);
+  html += '</div>';
+  html += '<div class="other-rev-note">※その他売上（コンサル費用・顧問料等）は原価0として粗利＝売上で計上しています</div>';
+  html += '</div>';
 
   // ===== その他売上入力 =====
   html += '<div class="section-block">';
@@ -238,6 +296,7 @@ function render() {
   html += '<div class="form-row">';
   html += '<div class="form-group"><label>日付</label><input type="date" id="or-date" value="' + today() + '"></div>';
   html += '<div class="form-group"><label>金額（円）</label><input type="number" id="or-amount" placeholder="例: 300000"></div>';
+  html += '<div class="form-group"><label>事業カテゴリ</label><select id="or-category"><option>採用コンサル・リテーナー・RPOなど</option><option>BW</option><option>顧問</option><option>その他</option></select></div>';
   html += '<div class="form-group" style="flex:1;min-width:160px"><label>内容</label><input type="text" id="or-desc" placeholder="例: 〇〇社 顧問料 7月分"></div>';
   html += '<button class="btn-save" onclick="addOtherRevenue()">＋ 追加</button>';
   html += '</div>';
@@ -256,9 +315,9 @@ function render() {
 function renderOtherRevenueTable(memberIds) {
   const rows = OTHER_REVENUE.filter(r => currentMember === '全員' || memberIds.includes(r.member_id));
   if (!rows.length) return '<div style="color:#9aa3b8;font-size:12px">まだ登録がありません</div>';
-  let html = '<table class="rev-table"><thead><tr><th>日付</th><th>担当</th><th>金額</th><th>内容</th><th></th></tr></thead><tbody>';
+  let html = '<table class="rev-table"><thead><tr><th>日付</th><th>担当</th><th>事業カテゴリ</th><th>金額</th><th>内容</th><th></th></tr></thead><tbody>';
   rows.forEach(r => {
-    html += '<tr><td>' + r.revenue_date + '</td><td>' + (r.members ? (r.members.display_name||MEMBER_NAMES[r.members.name]) : '-') + '</td><td>' + fmtSalary(r.amount) + '</td><td>' + (r.description||'-') + '</td>' +
+    html += '<tr><td>' + r.revenue_date + '</td><td>' + (r.members ? (r.members.display_name||MEMBER_NAMES[r.members.name]) : '-') + '</td><td>' + (r.category||'-') + '</td><td>' + fmtSalary(r.amount) + '</td><td>' + (r.description||'-') + '</td>' +
       '<td><button class="del-btn" onclick="deleteOtherRevenue(\'' + r.id + '\')">削除</button></td></tr>';
   });
   html += '</tbody></table>';
@@ -269,9 +328,10 @@ async function addOtherRevenue() {
   const date = document.getElementById('or-date').value;
   const amount = parseFloat(document.getElementById('or-amount').value);
   const desc = document.getElementById('or-desc').value;
+  const category = document.getElementById('or-category').value;
   if (!date || !amount) { alert('日付と金額を入力してください'); return; }
   const memberId = ME ? ME.id : (currentMember !== '全員' ? MEMBERS.find(m=>m.name===MEMBER_MAP[currentMember])?.id : null);
-  const { error } = await sb.from('other_revenue').insert({ member_id: memberId, revenue_date: date, amount: amount, description: desc || null });
+  const { error } = await sb.from('other_revenue').insert({ member_id: memberId, revenue_date: date, amount: amount, description: desc || null, category: category });
   if (error) { alert('保存に失敗しました: ' + error.message); return; }
   const { data } = await sb.from('other_revenue').select('*,members(name,display_name)').order('revenue_date', { ascending: false });
   OTHER_REVENUE = data || [];
@@ -308,25 +368,39 @@ function renderChecklist(pipelineItems) {
   if (!targets.length) return '<div style="color:#9aa3b8;font-size:12px">対象の案件がまだありません</div>';
 
   const todayStr = today();
-  let html = '<table class="checklist-table"><thead><tr><th>候補者</th><th>企業</th><th>内定承諾日</th><th>入社日</th>';
+  let html = '<div style="overflow-x:auto"><table class="checklist-table"><thead><tr>' +
+    '<th>候補者</th><th>企業</th><th>担当</th><th>流入経路</th><th>内定承諾日</th><th>入社日</th>' +
+    '<th>理論年収</th><th>原価</th><th>粗利</th><th>入金日</th><th>出金日</th>';
   CHECKLIST_ITEMS.forEach(it => { html += '<th>' + it.label + '</th>'; });
-  html += '</tr></thead><tbody>';
+  html += '<th>備考</th></tr></thead><tbody>';
 
   targets.sort((a,b) => (acceptMap[b.id]||'').localeCompare(acceptMap[a.id]||''));
 
   targets.forEach(p => {
     const acceptDate = acceptMap[p.id] ? acceptMap[p.id].substring(0,10) : null;
+    const revenueForecast = p.candidates?.revenue_forecast || 0;
+    const grossProfit = p.candidates?.gross_profit != null ? p.candidates.gross_profit : null;
+    const cost = grossProfit != null ? revenueForecast - grossProfit : null;
+    const theoreticalSalary = p.theoretical_salary != null ? p.theoretical_salary : revenueForecast;
+
     html += '<tr>';
     html += '<td><strong>' + (p.candidates?.name||'-') + '</strong></td>';
     html += '<td style="color:#6B7A99">' + (p.companies?.name||'-') + '</td>';
+    html += '<td style="color:#6B7A99">' + (p.members?.display_name||'-') + '</td>';
+    html += '<td style="color:#6B7A99">' + (cleanSource(p.candidates?.source)||'-') + '</td>';
     html += '<td style="color:#6B7A99">' + (acceptDate||'-') + '</td>';
     html += '<td><input type="date" class="hire-date-input" value="' + (p.hire_date||'') + '" onchange="saveHireDate(\'' + p.id + '\',this.value)"></td>';
+    html += '<td><input type="number" class="hire-date-input" style="width:90px" value="' + theoreticalSalary + '" onchange="saveField(\'' + p.id + '\',\'theoretical_salary\',this.value?parseFloat(this.value):null)"></td>';
+    html += '<td style="color:#6B7A99">' + (cost != null ? fmtSalary(cost) : '-') + '</td>';
+    html += '<td style="color:#1baf7a;font-weight:500">' + (grossProfit != null ? fmtSalary(grossProfit) : '-') + '</td>';
+    html += '<td><input type="date" class="hire-date-input" value="' + (p.payment_date||'') + '" onchange="saveField(\'' + p.id + '\',\'payment_date\',this.value||null)"></td>';
+    html += '<td><input type="date" class="hire-date-input" value="' + (p.refund_date||'') + '" onchange="saveField(\'' + p.id + '\',\'refund_date\',this.value||null)"></td>';
 
     CHECKLIST_ITEMS.forEach(it => {
       let dueDate = null;
       if (it.due === 'accept') dueDate = acceptDate;
       else if (it.due === 'hire') dueDate = p.hire_date;
-      else if (it.due === 'payment') dueDate = p.hire_date ? lastDayOfNextMonth(p.hire_date) : null;
+      else if (it.due === 'payment') dueDate = p.payment_date || (p.hire_date ? lastDayOfNextMonth(p.hire_date) : null);
       const isDone = !!p[it.key];
       const isOverdue = !isDone && dueDate && dueDate < todayStr;
       html += '<td class="chk-cell' + (isOverdue ? ' overdue' : '') + '">' +
@@ -334,17 +408,34 @@ function renderChecklist(pipelineItems) {
         '<input type="checkbox" ' + (isDone ? 'checked' : '') + ' onchange="toggleChecklistItem(\'' + p.id + '\',\'' + it.key + '\',this.checked)">' +
         '</td>';
     });
+    html += '<td><input type="text" class="hire-date-input" style="width:140px" value="' + (p.checklist_note||'').replace(/"/g,'&quot;') + '" placeholder="備考" onchange="saveField(\'' + p.id + '\',\'checklist_note\',this.value||null)"></td>';
     html += '</tr>';
   });
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
   return html;
 }
 
-async function saveHireDate(pipelineId, value) {
-  const { error } = await sb.from('pipeline').update({ hire_date: value || null }).eq('id', pipelineId);
+async function saveField(pipelineId, key, value) {
+  const { error } = await sb.from('pipeline').update({ [key]: value }).eq('id', pipelineId);
   if (error) { alert('保存に失敗しました: ' + error.message); return; }
   const p = PIPELINE_DATA.find(x => x.id === pipelineId);
-  if (p) p.hire_date = value || null;
+  if (p) p[key] = value;
+  render();
+}
+
+async function saveHireDate(pipelineId, value) {
+  const p = PIPELINE_DATA.find(x => x.id === pipelineId);
+  const payload = { hire_date: value || null };
+  // 入金日が未設定の場合のみ、入社日の翌月末を自動セット（既に入っていれば上書きしない）
+  if (value && p && !p.payment_date) {
+    payload.payment_date = lastDayOfNextMonth(value);
+  }
+  const { error } = await sb.from('pipeline').update(payload).eq('id', pipelineId);
+  if (error) { alert('保存に失敗しました: ' + error.message); return; }
+  if (p) {
+    p.hire_date = value || null;
+    if (payload.payment_date) p.payment_date = payload.payment_date;
+  }
   render();
 }
 
