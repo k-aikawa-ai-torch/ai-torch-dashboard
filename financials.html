@@ -47,6 +47,13 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 .chk-cell.overdue{background:#FFF0F0}
 .chk-label{font-size:9.5px;color:#9aa3b8;display:block;margin-bottom:2px}
 .hire-date-input{height:26px;padding:0 4px;border:1px solid #DEE7F7;border-radius:4px;font-size:11px;width:110px}
+.rev-table select, .checklist-table select{height:26px;padding:0 4px;border:1px solid #DEE7F7;border-radius:4px;font-size:11px;font-family:inherit;color:#14213D;background:#fff}
+.sort-th{cursor:pointer;user-select:none;white-space:nowrap}
+.sort-arrow{margin-left:3px;font-size:9px;color:#c0c5cf}
+.sort-arrow.active{color:#0D40D9}
+.tag-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.tag{padding:5px 12px;border:1px solid #DEE7F7;border-radius:20px;font-size:12px;cursor:pointer;background:#fff;color:#6B7A99;white-space:nowrap;transition:all 0.15s;user-select:none}
+.tag.on{background:#14213D;color:#fff;border-color:#14213D}
 .icon-btn{background:none;border:none;cursor:pointer;color:#6B7A99;font-size:14px;padding:4px}
 </style>
 <link rel="stylesheet" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/assets/shared.css">
@@ -254,12 +261,16 @@ function sumOtherRevenueForMonths(memberIds, monthList) {
   return { revenue, profit: revenue };
 }
 
-function setOtherRevSort(key) { otherRevSortKey = key; render(); }
-function toggleOtherRevDir() { otherRevSortDir *= -1; render(); }
+function setOtherRevSort(key) {
+  if (otherRevSortKey === key) { otherRevSortDir *= -1; } else { otherRevSortKey = key; otherRevSortDir = 1; }
+  render();
+}
 function setChecklistFilter(v) { checklistFilter = v; render(); }
 function setChecklistMemberFilter(v) { checklistMemberFilter = v; render(); }
-function setChecklistSort(key) { checklistSortKey = key; render(); }
-function toggleChecklistDir() { checklistSortDir *= -1; render(); }
+function setChecklistSort(key) {
+  if (checklistSortKey === key) { checklistSortDir *= -1; } else { checklistSortKey = key; checklistSortDir = 1; }
+  render();
+}
 
 function render() {
   const el = document.getElementById('content');
@@ -312,32 +323,24 @@ function render() {
   html += '<div class="form-group" style="flex:1;min-width:160px"><label>内容</label><input type="text" id="or-desc" placeholder="例: 〇〇社 顧問料 7月分"></div>';
   html += '<button class="btn-save" onclick="addOtherRevenue()">＋ 追加</button>';
   html += '</div>';
-  html += '<div class="form-row" style="margin-bottom:10px">';
-  html += '<div class="form-group"><label>ソート</label><select id="or-sort-key" onchange="setOtherRevSort(this.value)">' +
-    ['date:日付','member:担当','category:事業カテゴリ','amount:金額','desc:内容'].map(o => { const [k,l]=o.split(':'); return '<option value="'+k+'"'+(otherRevSortKey===k?' selected':'')+'>'+l+'</option>'; }).join('') + '</select></div>';
-  html += '<button class="btn-save" style="background:#fff;color:#14213D;border:1px solid #DEE7F7" onclick="toggleOtherRevDir()">' + (otherRevSortDir===1?'▲昇順':'▼降順') + '</button>';
-  html += '</div>';
   html += renderOtherRevenueTable(memberIds);
   html += '</div>';
 
   // ===== 事務処理チェックリスト =====
   html += '<div class="section-block">';
   html += '<div class="sec-header"><span class="bar" style="background:#e24b4a"></span><span class="title">事務処理チェックリスト</span><span class="sub">内定承諾以降の案件</span></div>';
-  html += '<div class="form-row" style="margin-bottom:10px">';
-  html += '<div class="form-group"><label>絞り込み</label><select id="chk-filter" onchange="setChecklistFilter(this.value)">' +
+  html += '<div class="tag-filters">' +
     [['all','すべて表示'],['contract_pending','成約報告がまだ'],['hire_pending','入社がまだ'],['post_hire_pending','入社後フォロー等がまだ'],['payment_pending','入金確認がまだ'],['completed','すべて終わったもの']]
-      .map(([k,l]) => '<option value="'+k+'"'+(checklistFilter===k?' selected':'')+'>'+l+'</option>').join('') + '</select></div>';
+      .map(([k,l]) => '<span class="tag' + (checklistFilter===k?' on':'') + '" onclick="setChecklistFilter(\''+k+'\')">'+l+'</span>').join('') +
+    '</div>';
   if (currentMember === '全員') {
+    html += '<div class="form-row" style="margin-bottom:10px">';
     html += '<div class="form-group"><label>担当で絞る</label><select id="chk-member-filter" onchange="setChecklistMemberFilter(this.value)">' +
       '<option value=""' + (checklistMemberFilter===''?' selected':'') + '>全員</option>' +
       MEMBERS.map(m => '<option value="'+m.id+'"'+(checklistMemberFilter===m.id?' selected':'')+'>'+(m.display_name||MEMBER_NAMES[m.name])+'</option>').join('') +
       '</select></div>';
+    html += '</div>';
   }
-  html += '<div class="form-group"><label>ソート</label><select id="chk-sort-key" onchange="setChecklistSort(this.value)">' +
-    [['candidate','候補者'],['company','企業'],['member','担当'],['source','流入経路'],['accept_date','内定承諾日'],['hire_date','入社日'],['theoretical_salary','理論年収'],['cost','原価'],['profit','粗利'],['revenue','売上金額'],['payment_date','入金日'],['refund_date','出金日']]
-      .map(([k,l]) => '<option value="'+k+'"'+(checklistSortKey===k?' selected':'')+'>'+l+'</option>').join('') + '</select></div>';
-  html += '<button class="btn-save" style="background:#fff;color:#14213D;border:1px solid #DEE7F7" onclick="toggleChecklistDir()">' + (checklistSortDir===1?'▲昇順':'▼降順') + '</button>';
-  html += '</div>';
   html += renderChecklist(myPipeline);
   html += '</div>';
 
@@ -360,7 +363,14 @@ function renderOtherRevenueTable(memberIds) {
   }
   rows = rows.slice().sort((a,b) => otherRevSortDir * cmp(a,b));
 
-  let html = '<table class="rev-table"><thead><tr><th>日付</th><th>担当</th><th>事業カテゴリ</th><th>金額</th><th>内容</th><th></th></tr></thead><tbody>';
+  function th(key, label) {
+    const active = otherRevSortKey === key;
+    return '<th class="sort-th" onclick="setOtherRevSort(\'' + key + '\')">' + label +
+      '<span class="sort-arrow' + (active ? ' active' : '') + '">' + (active ? (otherRevSortDir===1?'▲':'▼') : '↕') + '</span></th>';
+  }
+  let html = '<table class="rev-table"><thead><tr>' +
+    th('date','日付') + th('member','担当') + th('category','事業カテゴリ') + th('amount','金額') + th('desc','内容') + '<th></th>' +
+    '</tr></thead><tbody>';
   rows.forEach(r => {
     const memberOpts = MEMBERS.map(m => '<option value="'+m.id+'"'+(m.id===r.member_id?' selected':'')+'>'+(m.display_name||MEMBER_NAMES[m.name])+'</option>').join('');
     const categoryOpts = CATEGORY_OPTS.map(c => '<option'+(c===r.category?' selected':'')+'>'+c+'</option>').join('');
@@ -436,8 +446,8 @@ function renderChecklist(pipelineItems) {
   // ===== 絞り込み =====
   if (checklistMemberFilter) targets = targets.filter(p => p.member_id === checklistMemberFilter);
   if (checklistFilter === 'contract_pending') targets = targets.filter(p => !p.checklist_contract_report);
-  else if (checklistFilter === 'hire_pending') targets = targets.filter(p => !p.hire_date);
-  else if (checklistFilter === 'post_hire_pending') targets = targets.filter(p => p.hire_date && POST_HIRE_KEYS.some(k => !p[k]));
+  else if (checklistFilter === 'hire_pending') targets = targets.filter(p => !p.hire_date || p.hire_date > todayStr);
+  else if (checklistFilter === 'post_hire_pending') targets = targets.filter(p => p.hire_date && p.hire_date <= todayStr && POST_HIRE_KEYS.some(k => !p[k]));
   else if (checklistFilter === 'payment_pending') targets = targets.filter(p => !p.checklist_payment_confirm);
   else if (checklistFilter === 'completed') targets = targets.filter(p => p.hire_date && CHECKLIST_ITEMS.every(it => p[it.key]));
 
@@ -471,9 +481,14 @@ function renderChecklist(pipelineItems) {
     return checklistSortDir * (va - vb);
   });
 
+  function th(key, label) {
+    const active = checklistSortKey === key;
+    return '<th class="sort-th" onclick="setChecklistSort(\'' + key + '\')">' + label +
+      '<span class="sort-arrow' + (active ? ' active' : '') + '">' + (active ? (checklistSortDir===1?'▲':'▼') : '↕') + '</span></th>';
+  }
   let html = '<div style="overflow-x:auto"><table class="checklist-table"><thead><tr>' +
-    '<th>候補者</th><th>企業</th><th>担当</th><th>流入経路</th><th>内定承諾日</th><th>入社日</th>' +
-    '<th>理論年収</th><th>原価</th><th>粗利</th><th>売上金額</th><th>入金日</th><th>出金日</th>';
+    th('candidate','候補者') + th('company','企業') + th('member','担当') + th('source','流入経路') + th('accept_date','内定承諾日') + th('hire_date','入社日') +
+    th('theoretical_salary','理論年収') + th('cost','原価') + th('profit','粗利') + th('revenue','売上金額') + th('payment_date','入金日') + th('refund_date','出金日');
   CHECKLIST_ITEMS.forEach(it => { html += '<th>' + it.label + '</th>'; });
   html += '<th>備考</th></tr></thead><tbody>';
 
