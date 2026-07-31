@@ -38,11 +38,11 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 .top-strip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:18px 20px 0}
 .top-strip h1{font-size:17px;font-weight:700;color:#14213D}
 .badge{background:#fff;border:1px solid #DEE7F7;font-size:11px;padding:3px 10px;border-radius:20px;color:#6B7A99}
-.media-table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #DEE7F7;font-size:12.5px}
+.media-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #DEE7F7;font-size:12.5px}
 .media-table th{background:#f9f9f7;font-size:11px;font-weight:500;color:#6B7A99;padding:8px 10px;text-align:center;border-bottom:1px solid #DEE7F7;white-space:nowrap}
-.media-table th:first-child{text-align:left}
+.media-table th:first-child{text-align:left;position:sticky;left:0;z-index:3;background:#f9f9f7}
 .media-table td{padding:9px 10px;border-bottom:1px solid #f5f5f5;text-align:center}
-.media-table td:first-child{text-align:left;font-weight:500;cursor:pointer;color:#0D40D9}
+.media-table td:first-child{text-align:left;font-weight:500;cursor:pointer;color:#0D40D9;position:sticky;left:0;z-index:2;background:#fff}
 .media-table td:first-child:hover{text-decoration:underline}
 .media-table tr:last-child td{border-bottom:none}
 .edit-toggle-btn{padding:6px 14px;font-size:12px;border:1px solid #DEE7F7;border-radius:8px;background:#fff;cursor:pointer;color:#14213D}
@@ -171,6 +171,7 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
     <div class="form-group"><label>指標名</label><input id="cm-name" placeholder="例：私の推薦効率"></div>
     <div class="form-group"><label>分子</label><select id="cm-numerator"></select></div>
     <div class="form-group"><label>分母</label><select id="cm-denominator"></select></div>
+    <div class="form-group"><label>対象媒体（任意・指定すると分子分母ともその媒体だけで集計）</label><select id="cm-source"><option value="">全媒体</option></select></div>
     <div class="form-group"><label>倍率（％表示なら100、実数なら1）</label><input id="cm-multiplier" type="number" value="100"></div>
     <div class="form-actions">
       <button class="btn-cancel" onclick="closeCustomModal()">キャンセル</button>
@@ -273,7 +274,7 @@ async function loadData() {
     sb.from('members').select('*'),
     sb.from('candidates').select('*,members(name,display_name)'),
     sb.from('targets').select('*,members(name,display_name)'),
-    fetchAllRange('pipeline', '*, members(name,display_name), candidates(source,desired_salary,job_type,registered_at,top_priority_axis), companies(name,score_salary,score_autonomy,score_tech,score_wlb,score_culture,score_brand,score_social)'),
+    fetchAllRange('pipeline', '*, members(name,display_name), candidates(source,desired_salary,job_type,registered_at,top_priority_axis,phase), companies(name,score_salary,score_autonomy,score_tech,score_wlb,score_culture,score_brand,score_social)'),
     fetchAllRange('pipeline_phase_history', '*'),
     sb.from('manual_kpi_inputs').select('*'),
     sb.from('custom_metrics').select('*,members(name,display_name)'),
@@ -369,6 +370,17 @@ function countUniqueReachedAnyPhase(pipelineItems, phases, month) {
   });
   return ids.size;
 }
+// 内定・内定承諾のユニーク人数は「候補者自身のフェーズ」が該当フェーズになっているかで判定する
+function countUniqueByCandidatePhase(pipelineItems, pipelinePhase, candidatePhaseValues, month) {
+  const map = firstOccurrenceMap(pipelineItems, [pipelinePhase]);
+  const ids = new Set();
+  Object.keys(map).forEach(pid => {
+    if (map[pid].substring(0,7) !== month) return;
+    const p = pipelineItems.find(x => x.id === pid);
+    if (p && p.candidate_id && candidatePhaseValues.includes(p.candidates?.phase)) ids.add(p.candidate_id);
+  });
+  return ids.size;
+}
 // 推薦（＝求人への提案＝パイプライン新規作成）件数（延べ）
 function countRecommendsDeal(pipelineItems, month) {
   return pipelineItems.filter(p => (p.created_at||'').substring(0,7) === month).length;
@@ -408,7 +420,12 @@ function fmtSalary(v) { if (v==null) return '-'; return '¥' + Math.round(v).toL
 function fmtPct(v) { return v==null || !isFinite(v) ? '-' : Math.round(v*1000)/10 + '%'; }
 
 // ============ 基礎指標レジストリ（自動集計＋手入力）============
-function computeBaseMetric(key, pipelineItems, candidateItems, month) {
+function computeBaseMetric(key, pipelineItems, candidateItems, month, sourceFilter) {
+  if (sourceFilter) {
+    const filteredCandidateIds = new Set(candidateItems.filter(c => cleanSource(c.source) === sourceFilter).map(c => c.id));
+    pipelineItems = pipelineItems.filter(p => p.candidate_id && filteredCandidateIds.has(p.candidate_id));
+    candidateItems = candidateItems.filter(c => cleanSource(c.source) === sourceFilter);
+  }
   switch(key) {
     case 'doc_screen': return countPhaseReachedInMonth(pipelineItems, '書類選考', month);
     case 'casual': return countPhaseReachedInMonth(pipelineItems, 'カジュアル面談', month);
@@ -427,8 +444,16 @@ function computeBaseMetric(key, pipelineItems, candidateItems, month) {
     }
     case 'revenue': return sumActualRevenueForMonths(pipelineItems, candidateItems, [month]);
     case 'profit': return sumGrossProfitForMonths(candidateItems, [month]);
-    case 'scout': return sumManual(pipelineItems, month, 'scout_count');
-    case 'lead': return sumManual(pipelineItems, month, 'lead_count');
+    case 'scout': return sourceFilter ? sumManualBySource(pipelineItems, month, 'scout_count', sourceFilter) : sumManual(pipelineItems, month, 'scout_count');
+    case 'lead': return sourceFilter ? sumManualBySource(pipelineItems, month, 'lead_count', sourceFilter) : sumManual(pipelineItems, month, 'lead_count');
+    case 'withdrawal': {
+      const mids = [...new Set(pipelineItems.map(p => p.member_id).filter(Boolean))];
+      return mids.reduce((s,mid) => { const r = RISK_INPUTS.find(x => x.member_id===mid && x.year_month===month); return s + ((r && r.withdrawal_count) || 0); }, 0);
+    }
+    case 'early_leave': {
+      const mids = [...new Set(pipelineItems.map(p => p.member_id).filter(Boolean))];
+      return mids.reduce((s,mid) => { const r = RISK_INPUTS.find(x => x.member_id===mid && x.year_month===month); return s + ((r && r.early_leave_count) || 0); }, 0);
+    }
     default: return 0;
   }
 }
@@ -436,6 +461,11 @@ function sumManual(pipelineItems, month, field) {
   const memberIds = new Set(pipelineItems.map(p => p.member_id).filter(Boolean));
   if (currentMember === '全員') return MANUAL_KPI.filter(m => m.year_month === month).reduce((s,m) => s + (m[field]||0), 0);
   return MANUAL_KPI.filter(m => m.year_month === month && memberIds.has(m.member_id)).reduce((s,m) => s + (m[field]||0), 0);
+}
+function sumManualBySource(pipelineItems, month, field, source) {
+  const memberIds = new Set(pipelineItems.map(p => p.member_id).filter(Boolean));
+  if (currentMember === '全員') return MANUAL_KPI.filter(m => m.year_month === month && m.source === source).reduce((s,m) => s + (m[field]||0), 0);
+  return MANUAL_KPI.filter(m => m.year_month === month && m.source === source && memberIds.has(m.member_id)).reduce((s,m) => s + (m[field]||0), 0);
 }
 
 const BASE_METRIC_OPTIONS = [
@@ -471,25 +501,29 @@ function render() {
   const interviews = computeBaseMetric('interviews', myPipeline, myCandidates, currentMonth);
   const recDeal = countRecommendsDeal(myPipeline, currentMonth);
   const recUnique = countRecommendsUnique(myPipeline, currentMonth);
-  const casual = countPhaseReachedInMonth(myPipeline, 'カジュアル面談', currentMonth);
-  const firstI = countPhaseReachedInMonth(myPipeline, '一次面接', currentMonth);
-  const finalI = countPhaseReachedInMonth(myPipeline, '最終面接', currentMonth);
+  const casualDeal = countPhaseReachedInMonth(myPipeline, 'カジュアル面談', currentMonth);
+  const firstDeal = countPhaseReachedInMonth(myPipeline, '一次面接', currentMonth);
+  const casualOrFirstDeal = casualDeal + firstDeal;
+  const casualOrFirstUnique = countUniqueReachedAnyPhase(myPipeline, ['カジュアル面談','一次面接'], currentMonth);
+  const finalDeal = countPhaseReachedInMonth(myPipeline, '最終面接', currentMonth);
+  const finalUnique = countUniquePhaseReachedInMonth(myPipeline, '最終面接', currentMonth);
   const offerDeal = countPhaseReachedInMonth(myPipeline, '内定', currentMonth);
-  const offerUnique = countUniquePhaseReachedInMonth(myPipeline, '内定', currentMonth);
+  const offerUnique = countUniqueByCandidatePhase(myPipeline, '内定', ['内定KITAAA'], currentMonth);
   const acceptDeal = countPhaseReachedInMonth(myPipeline, '内定承諾', currentMonth);
+  const acceptUnique = countUniqueByCandidatePhase(myPipeline, '内定承諾', ['内定承諾歓喜'], currentMonth);
   const revenue = computeBaseMetric('revenue', myPipeline, myCandidates, currentMonth);
 
   const scoutCount = computeScoutCount(currentMonth, memberIds);
   const replyRateInfo = computeReplyRate(currentMonth, memberIds);
+  const leadCount = replyRateInfo.leadSum;
 
   const recommendActual = memberIds.reduce((s,mid) => { const t = TARGETS.find(t => t.member_id===mid && t.year_month===currentMonth); return s + ((t && t.recommend_actual) || 0); }, 0);
   const avgRecommendPerPerson = recUnique ? recommendActual / recUnique : null;
   const interviewToRecommendRate = interviews ? recUnique/interviews : null;
-  const casualOrFirst = countUniqueReachedAnyPhase(myPipeline, ['カジュアル面談','一次面接'], currentMonth);
-  const recToCasualRate = recUnique ? casualOrFirst/recUnique : null;
-  const firstToFinalRate = firstI ? finalI/firstI : null;
-  const finalToOfferRate = finalI ? offerDeal/finalI : null;
-  const acceptRate = offerDeal ? acceptDeal/offerDeal : null;
+  const docPassRate = recDeal ? casualOrFirstDeal/recDeal : null;
+  const firstToFinalRate = firstDeal ? finalDeal/firstDeal : null;
+  const finalToOfferRate = finalDeal ? offerDeal/finalDeal : null;
+  const offerToAcceptRate = offerDeal ? acceptDeal/offerDeal : null;
   const decidedUnitPrice = acceptDeal ? revenue/acceptDeal : null;
 
   // 目標値（フェーズ別）と、そこから自動算出した遷移率目標
@@ -501,7 +535,7 @@ function render() {
   const tFinal = getTargetSum('final_interview_target', currentMonth, memberIds);
   const tOffer = getTargetSum('offer_target', currentMonth, memberIds);
   const tAccept = getTargetSum('accept_target', currentMonth, memberIds);
-  const tRecToCasualRate = tRecommend ? (tCasual+tFirst)/tRecommend : null;
+  const tDocPassRate = tRecommend ? (tCasual+tFirst)/tRecommend : null;
   const tFirstToFinalRate = tFirst ? tFinal/tFirst : null;
   const tFinalToOfferRate = tFinal ? tOffer/tFinal : null;
   const tAcceptRate = tOffer ? tAccept/tOffer : null;
@@ -517,22 +551,20 @@ function render() {
   html += '</div>';
   html += renderFunnel([
     { label: 'スカウト通数', value: scoutCount, target: tScout || null },
-    { label: '面談', value: interviews, rate: replyRateInfo.rate, target: tInterview || null },
-    { label: '推薦', value: recUnique, rate: interviewToRecommendRate, target: tRecommend || null },
-    { label: 'カジュアル面談', value: casual, rate: recToCasualRate, targetRate: tRecToCasualRate, target: tCasual || null },
-    { label: '一次面接', value: firstI, target: tFirst || null },
-    { label: '最終面接', value: finalI, rate: firstToFinalRate, targetRate: tFirstToFinalRate, target: tFinal || null },
-    { label: '内定', value: offerDeal, rate: finalToOfferRate, targetRate: tFinalToOfferRate, target: tOffer || null },
-    { label: '内定承諾', value: acceptDeal, rate: acceptRate, targetRate: tAcceptRate, target: tAccept || null },
+    { label: 'リード獲得数', value: leadCount, rate: replyRateInfo.rate },
+    { label: '面談', value: interviews, target: tInterview || null },
+    { label: '推薦', value: dealUniqueLabel(recDeal, recUnique), rate: interviewToRecommendRate, target: tRecommend || null },
+    { label: 'カジュアル面談+一次面接', value: dealUniqueLabel(casualOrFirstDeal, casualOrFirstUnique), rate: docPassRate, targetRate: tDocPassRate, target: (tCasual+tFirst) || null },
+    { label: '最終面接', value: dealUniqueLabel(finalDeal, finalUnique), rate: firstToFinalRate, targetRate: tFirstToFinalRate, target: tFinal || null },
+    { label: '内定', value: dealUniqueLabel(offerDeal, offerUnique), rate: finalToOfferRate, targetRate: tFinalToOfferRate, target: tOffer || null },
+    { label: '内定承諾', value: dealUniqueLabel(acceptDeal, acceptUnique), rate: offerToAcceptRate, targetRate: tAcceptRate, target: tAccept || null },
   ]);
-  html += '<div style="font-size:11px;color:#9aa3b8;margin-top:6px">返信率は「面談」の遷移率として表示・書類通過率はカジュアル面談＋一次面接の合算で計算・集計対象媒体は⚙️から設定できます（除外した媒体の面談数は引き続きカウントされます）</div>';
+  html += '<div style="font-size:11px;color:#9aa3b8;margin-top:6px">リード獲得数の遷移率は返信率・書類通過率はカジュアル面談＋一次面接の合算（延べ件数）で計算・集計対象媒体は⚙️から設定できます（除外した媒体の面談数は引き続きカウントされます）</div>';
 
   html += '<div class="kpi-grid" style="margin-top:16px">';
-  html += kpiCard('スカウト通数', scoutCount + '件', '⚙️で選択した媒体の合算');
-  html += kpiCard('返信率', fmtPct(replyRateInfo.rate), replyRateInfo.scoutSum + '件 → ' + replyRateInfo.leadSum + '件（除外媒体を除く）');
-  html += kpiCard('推薦', recUnique + '名<span style="font-size:12px;color:#6B7A99"> （' + recDeal + '件）</span>', '延べ件数（人）');
   html += kpiCard('平均推薦数/人', avgRecommendPerPerson!=null ? Math.round(avgRecommendPerPerson*10)/10 + '件' : '-', '推薦数(手入力計' + recommendActual + '件) ÷ 推薦人数');
-  html += kpiCard('内定', offerDeal + '件<span style="font-size:12px;color:#6B7A99"> （' + offerUnique + '名）</span>', '延べ件数（ユニーク人数）');
+  html += kpiCard('書類通過率', fmtPct(docPassRate), '推薦延べ' + recDeal + '件 → 一次+カジュアル延べ' + casualOrFirstDeal + '件');
+  html += kpiCard('一次→内定率', fmtPct(firstDeal ? offerDeal/firstDeal : null), '一次面接延べ' + firstDeal + '件 → 内定延べ' + offerDeal + '件');
   html += kpiCard('決定単価', decidedUnitPrice!=null ? fmtSalary(decidedUnitPrice) : '-', '売上実績 ÷ 内定承諾件数');
   html += '</div>';
 
@@ -932,6 +964,10 @@ function renderMonthlyMediaTables(memberIds) {
 }
 
 
+function dealUniqueLabel(deal, unique) {
+  return deal + '件<span style="font-size:12px;color:#6B7A99"> （' + unique + '名）</span>';
+}
+
 function kpiCard(label, value, sub) {
   return '<div class="kpi-card"><div class="kpi-label">' + label + '</div>' +
     '<div class="kpi-main"><span class="kpi-value">' + value + '</span></div>' +
@@ -1046,12 +1082,12 @@ function renderCustomMetrics(pipelineItems, candidateItems) {
   if (!CUSTOM_METRICS.length) return '<div style="color:#9aa3b8;font-size:12px">まだカスタム指標がありません</div>';
   let html = '<div class="custom-list">';
   CUSTOM_METRICS.forEach(function(cm) {
-    const num = computeBaseMetric(cm.numerator_key, pipelineItems, candidateItems, currentMonth);
-    const den = computeBaseMetric(cm.denominator_key, pipelineItems, candidateItems, currentMonth);
+    const num = computeBaseMetric(cm.numerator_key, pipelineItems, candidateItems, currentMonth, cm.filter_source || null);
+    const den = computeBaseMetric(cm.denominator_key, pipelineItems, candidateItems, currentMonth, cm.filter_source || null);
     const val = den ? (num/den*cm.multiplier) : null;
     const creatorName = cm.members ? (cm.members.display_name || cm.members.name) : '';
     html += '<div class="custom-row">' +
-      '<span class="name">' + cm.name + '<div class="creator">作成: ' + creatorName + '</div></span>' +
+      '<span class="name">' + cm.name + (cm.filter_source ? '<span style="color:#9aa3b8"> （' + cm.filter_source + '限定）</span>' : '') + '<div class="creator">作成: ' + creatorName + '</div></span>' +
       '<span class="value">' + (val!=null ? Math.round(val*100)/100 : '-') + '</span>' +
       '<button class="del-btn" onclick="deleteCustomMetric(\'' + cm.id + '\')">削除</button>' +
       '</div>';
@@ -1158,6 +1194,7 @@ function openCustomModal() {
   const opts = BASE_METRIC_OPTIONS.map(o => '<option value="' + o.key + '">' + o.label + '</option>').join('');
   document.getElementById('cm-numerator').innerHTML = opts;
   document.getElementById('cm-denominator').innerHTML = opts;
+  document.getElementById('cm-source').innerHTML = '<option value="">全媒体</option>' + SOURCE_LIST.map(s => '<option value="' + s + '">' + s + '</option>').join('');
   document.getElementById('cm-name').value = '';
   document.getElementById('cm-multiplier').value = 100;
   document.getElementById('custom-modal').classList.add('open');
@@ -1173,6 +1210,7 @@ async function saveCustomMetric() {
     name: name,
     numerator_key: document.getElementById('cm-numerator').value,
     denominator_key: document.getElementById('cm-denominator').value,
+    filter_source: document.getElementById('cm-source').value || null,
     multiplier: parseFloat(document.getElementById('cm-multiplier').value) || 1,
   };
   const { error } = await sb.from('custom_metrics').insert(payload);
