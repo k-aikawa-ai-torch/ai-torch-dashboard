@@ -305,7 +305,7 @@ async function loadData() {
 
   const [{ data: members }, { data: candidates }, { data: targets }, { data: revenueView }, { data: feeRates }, pipeline, phaseHistory] = await Promise.all([
     sb.from('members').select('*'),
-    sb.from('candidates').select('*,members(name,display_name)'),
+    sb.from('candidates').select('*,members(name,display_name)').is('deleted_at', null),
     sb.from('targets').select('*,members(name,display_name)'),
     sb.from('revenue_forecast_by_member').select('*'),
     sb.from('media_fee_rates').select('*'),

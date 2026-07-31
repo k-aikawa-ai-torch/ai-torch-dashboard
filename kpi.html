@@ -272,7 +272,7 @@ async function loadData() {
 
   const [{ data: members }, { data: candidates }, { data: targets }, pipeline, phaseHistory, { data: manualKpi }, { data: customMetrics }, { data: riskInputs }] = await Promise.all([
     sb.from('members').select('*'),
-    sb.from('candidates').select('*,members(name,display_name)'),
+    sb.from('candidates').select('*,members(name,display_name)').is('deleted_at', null),
     sb.from('targets').select('*,members(name,display_name)'),
     fetchAllRange('pipeline', '*, members(name,display_name), candidates(source,desired_salary,job_type,registered_at,top_priority_axis,phase), companies(name,score_salary,score_autonomy,score_tech,score_wlb,score_culture,score_brand,score_social)'),
     fetchAllRange('pipeline_phase_history', '*'),
@@ -562,15 +562,16 @@ function render() {
   html += '<div style="font-size:11px;color:#9aa3b8;margin-top:6px">リード獲得数の遷移率は返信率・書類通過率はカジュアル面談＋一次面接の合算（延べ件数）で計算・集計対象媒体は⚙️から設定できます（除外した媒体の面談数は引き続きカウントされます）</div>';
 
   html += '<div class="kpi-grid" style="margin-top:16px">';
-  html += kpiCard('平均推薦数/人', avgRecommendPerPerson!=null ? Math.round(avgRecommendPerPerson*10)/10 + '件' : '-', '推薦数(手入力計' + recommendActual + '件) ÷ 推薦人数');
-  html += kpiCard('書類通過率', fmtPct(docPassRate), '推薦延べ' + recommendActual + '件 → 一次+カジュアル延べ' + casualOrFirstDeal + '件');
-  html += kpiCard('一次→内定率', fmtPct(firstDeal ? offerDeal/firstDeal : null), '一次面接延べ' + firstDeal + '件 → 内定延べ' + offerDeal + '件');
-  html += kpiCard('決定単価', decidedUnitPrice!=null ? fmtSalary(decidedUnitPrice) : '-', '売上実績 ÷ 内定承諾件数');
+  html += kpiCard('返信率', fmtPct(replyRateInfo.rate), replyRateInfo.scoutSum + '件 → ' + replyRateInfo.leadSum + '件（除外媒体を除く）');
   html += kpiCard('面談数', interviews + '件', '');
   html += kpiCard('推薦数', recommendActual + '件', '手入力実績');
   html += kpiCard('一次面接数', casualOrFirstDeal + '件', 'カジュアル面談+一次面接（延べ）');
   html += kpiCard('内定数', offerDeal + '件', '延べ件数');
   html += kpiCard('内定承諾数', acceptDeal + '件', '');
+  html += kpiCard('平均推薦数/人', avgRecommendPerPerson!=null ? Math.round(avgRecommendPerPerson*10)/10 + '件' : '-', '推薦数(手入力計' + recommendActual + '件) ÷ 推薦人数');
+  html += kpiCard('書類通過率', fmtPct(docPassRate), '推薦延べ' + recommendActual + '件 → 一次+カジュアル延べ' + casualOrFirstDeal + '件');
+  html += kpiCard('一次→内定率', fmtPct(firstDeal ? offerDeal/firstDeal : null), '一次面接延べ' + firstDeal + '件 → 内定延べ' + offerDeal + '件');
+  html += kpiCard('決定単価', decidedUnitPrice!=null ? fmtSalary(decidedUnitPrice) : '-', '売上実績 ÷ 内定承諾件数');
   html += '</div>';
 
   if (currentMember === '全員') {

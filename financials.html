@@ -160,7 +160,7 @@ async function fetchAllRange(table, select) {
 async function loadData() {
   const [{ data: members }, { data: candidates }, pipeline, phaseHistory, { data: otherRevenue }] = await Promise.all([
     sb.from('members').select('*'),
-    sb.from('candidates').select('*,members(name,display_name)'),
+    sb.from('candidates').select('*,members(name,display_name)').is('deleted_at', null),
     fetchAllRange('pipeline', '*, members(name,display_name), candidates(name,source,revenue_forecast,gross_profit), companies(name)'),
     fetchAllRange('pipeline_phase_history', '*'),
     sb.from('other_revenue').select('*,members(name,display_name)').order('revenue_date', { ascending: false }),
