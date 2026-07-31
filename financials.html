@@ -198,7 +198,8 @@ function filterByMemberName(arr, memberName) {
   return arr.filter(x => x.members && x.members.name === key);
 }
 
-function today() { return new Date().toISOString().substring(0,10); }
+function toLocalDateStr(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+function today() { return toLocalDateStr(new Date()); }
 function cleanSource(s) { return (s || '').replace(/^[（(]+/, '').trim(); }
 
 // 8月始まり・4ヶ月区切りの期を計算する（ダッシュボードと同じ定義）
@@ -503,7 +504,7 @@ const CHECKLIST_ITEMS = [
 function lastDayOfNextMonth(hireDate) {
   const d = new Date(hireDate);
   const nextMonthLastDay = new Date(d.getFullYear(), d.getMonth() + 2, 0);
-  return nextMonthLastDay.toISOString().substring(0,10);
+  return toLocalDateStr(nextMonthLastDay);
 }
 
 function renderChecklist(pipelineItems) {
