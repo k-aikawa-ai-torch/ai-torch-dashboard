@@ -38,10 +38,16 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 .form-group label{font-size:11px;color:#6B7A99;font-weight:500}
 .form-group input, .form-group select{height:36px;padding:0 10px;border:1px solid #DEE7F7;border-radius:8px;font-size:13px;background:#fff}
 .btn-save{padding:0 20px;height:36px;background:#14213D;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer}
-.rev-table, .checklist-table{width:100%;border-collapse:collapse;font-size:12.5px;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #DEE7F7}
-.rev-table th, .checklist-table th{background:#f9f9f7;font-size:11px;font-weight:500;color:#6B7A99;padding:8px 10px;text-align:left;border-bottom:1px solid #DEE7F7;white-space:nowrap}
+.rev-table, .checklist-table{width:100%;border-collapse:collapse;font-size:12.5px;background:#fff;border:1px solid #DEE7F7}
+.rev-table th, .checklist-table th{background:#f9f9f7;font-size:11px;font-weight:500;color:#6B7A99;padding:8px 10px;text-align:left;border-bottom:1px solid #DEE7F7;white-space:nowrap;position:sticky;top:0;z-index:3}
 .rev-table td, .checklist-table td{padding:8px 10px;border-bottom:1px solid #f5f5f5;vertical-align:middle}
 .rev-table tr:last-child td, .checklist-table tr:last-child td{border-bottom:none}
+.checklist-table{table-layout:fixed}
+.checklist-scroll-wrap{overflow:auto;max-height:600px;border-radius:10px}
+.checklist-table th:nth-child(1), .checklist-table td:nth-child(1){position:sticky;left:0;z-index:2;background:#fff}
+.checklist-table th:nth-child(1){z-index:4;background:#f9f9f7}
+.checklist-table th:nth-child(2), .checklist-table td:nth-child(2){position:sticky;left:90px;z-index:2;background:#fff}
+.checklist-table th:nth-child(2){z-index:4;background:#f9f9f7}
 .del-btn{background:none;border:none;color:#c00;cursor:pointer;font-size:12px}
 .chk-cell{text-align:center}
 .chk-cell.overdue{background:#FFF0F0}
@@ -112,6 +118,7 @@ const ACCEPT_PHASES = ['内定承諾','入社待ち','入社済み'];
 
 let MEMBERS = [], PIPELINE_DATA = [], CANDIDATE_DATA = [], PHASE_HISTORY = [], OTHER_REVENUE = [];
 let currentMember = '全員';
+let plSelectedMonth = new Date().toISOString().substring(0,7);
 let checklistSortKey = 'accept_date';
 let checklistSortDir = -1;
 let checklistFilter = 'all';
@@ -194,6 +201,17 @@ function today() { return new Date().toISOString().substring(0,10); }
 function cleanSource(s) { return (s || '').replace(/^[（(]+/, '').trim(); }
 
 // 8月始まり・4ヶ月区切りの期を計算する（ダッシュボードと同じ定義）
+function getAllMonthsSince202502() {
+  const months = [];
+  const start = new Date(2025, 1, 1); // 2025-02
+  const now = new Date();
+  for (let d = new Date(start); d <= now; d.setMonth(d.getMonth() + 1)) {
+    months.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
+  }
+  return months.reverse();
+}
+function setPlMonth(m) { plSelectedMonth = m; render(); }
+
 function getTermInfo(ym) {
   const [y, mo] = ym.split('-').map(Number);
   const fyStartYear = mo >= 8 ? y : y - 1;
@@ -272,6 +290,38 @@ function setChecklistSort(key) {
   render();
 }
 
+function renderMonthlyHistoryTable() {
+  const months = getAllMonthsSince202502();
+
+  function buildTableForScope(pipelineScope, memberIdsScope, title) {
+    let html = '<div class="section-title" style="margin-top:16px">' + title + '</div>';
+    html += '<div style="overflow-x:auto"><table class="rev-table"><thead><tr><th>月</th><th>決定ベース売上</th><th>決定ベース粗利</th><th>発生ベース売上</th><th>発生ベース粗利</th></tr></thead><tbody>';
+    months.forEach(m => {
+      const dec = sumDecisionBasis(pipelineScope, [m]);
+      const acc = sumAccrualBasis(pipelineScope, [m]);
+      const other = sumOtherRevenueForMonths(memberIdsScope, [m]);
+      html += '<tr><td>' + m + '</td>' +
+        '<td>' + fmtSalary(dec.revenue + other.revenue) + '</td><td>' + fmtSalary(dec.profit + other.profit) + '</td>' +
+        '<td>' + fmtSalary(acc.revenue + other.revenue) + '</td><td>' + fmtSalary(acc.profit + other.profit) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  let html = '<div class="section-title" style="margin-top:20px">月次推移（2025年2月〜現在）</div>';
+  if (currentMember === '全員') {
+    MEMBERS.forEach(function(m) {
+      const mp = PIPELINE_DATA.filter(p => p.members && p.members.name === m.name);
+      html += buildTableForScope(mp, [m.id], (m.display_name || MEMBER_NAMES[m.name] || m.name));
+    });
+  } else {
+    const memberIds = [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
+    const myScopedPipeline = filterByMemberName(PIPELINE_DATA, currentMember);
+    html += buildTableForScope(myScopedPipeline, memberIds, currentMember);
+  }
+  return html;
+}
+
 function render() {
   const el = document.getElementById('content');
   const myPipeline = filterByMemberName(PIPELINE_DATA, currentMember);
@@ -280,8 +330,8 @@ function render() {
   let html = '';
 
   // ===== P/L：決定ベース／発生ベース × 月・期・年 =====
-  const term = getTermInfo(today().substring(0,7));
-  const curMonth = [today().substring(0,7)];
+  const term = getTermInfo(plSelectedMonth);
+  const curMonth = [plSelectedMonth];
 
   function combined(fn, monthList) {
     const rec = fn(myPipeline, monthList);
@@ -298,7 +348,7 @@ function render() {
   function plCard(title, color, fn) {
     let c = '<div class="hero-card" style="flex:1;min-width:280px">';
     c += '<div class="hero-label" style="color:' + color + ';font-weight:600">' + title + '</div>';
-    c += plRow('今月（' + curMonth[0] + '）', combined(fn, curMonth));
+    c += plRow('月（' + curMonth[0] + '）', combined(fn, curMonth));
     c += plRow(term.termLabel + '（' + term.termRangeLabel + '）', combined(fn, term.months));
     c += plRow('年間（' + term.yearLabel + '）', combined(fn, term.yearMonths));
     c += '</div>';
@@ -307,10 +357,13 @@ function render() {
 
   html += '<div class="section-block">';
   html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">売上・粗利（P/L）</span><span class="sub">人材紹介＋その他売上の合算</span></div>';
+  html += '<div class="form-row" style="margin-bottom:12px"><div class="form-group"><label>表示する月を選択（期・年もこの月を含む期間になります）</label><select id="pl-month-select" onchange="setPlMonth(this.value)">' +
+    getAllMonthsSince202502().map(m => '<option value="' + m + '"' + (m===plSelectedMonth?' selected':'') + '>' + m + '</option>').join('') + '</select></div></div>';
   html += '<div style="display:flex;gap:16px;flex-wrap:wrap">';
   html += plCard('決定ベース（内定承諾日基準）', '#0D40D9', sumDecisionBasis);
   html += plCard('発生ベース（入社日基準）', '#eb6834', sumAccrualBasis);
   html += '</div>';
+  html += renderMonthlyHistoryTable();
   html += '</div>';
 
   // ===== その他売上入力 =====
@@ -486,7 +539,13 @@ function renderChecklist(pipelineItems) {
     return '<th class="sort-th" onclick="setChecklistSort(\'' + key + '\')">' + label +
       '<span class="sort-arrow' + (active ? ' active' : '') + '">' + (active ? (checklistSortDir===1?'▲':'▼') : '↕') + '</span></th>';
   }
-  let html = '<div style="overflow-x:auto"><table class="checklist-table"><thead><tr>' +
+  let html = '<div class="checklist-scroll-wrap"><table class="checklist-table">' +
+    '<colgroup><col style="width:90px"><col style="width:140px"><col style="width:60px"><col style="width:140px">' +
+    '<col style="width:100px"><col style="width:100px"><col style="width:90px"><col style="width:90px"><col style="width:90px"><col style="width:90px">' +
+    '<col style="width:100px"><col style="width:100px">' +
+    CHECKLIST_ITEMS.map(()=>'<col style="width:95px">').join('') +
+    '<col style="width:150px"></colgroup>' +
+    '<thead><tr>' +
     th('candidate','候補者') + th('company','企業') + th('member','担当') + th('source','流入経路') + th('accept_date','内定承諾日') + th('hire_date','入社日') +
     th('theoretical_salary','理論年収') + th('cost','原価') + th('profit','粗利') + th('revenue','売上金額') + th('payment_date','入金日') + th('refund_date','出金日');
   CHECKLIST_ITEMS.forEach(it => { html += '<th>' + it.label + '</th>'; });
