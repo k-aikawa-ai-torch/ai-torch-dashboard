@@ -207,7 +207,8 @@ function getAllMonthsSince202502() {
   const months = [];
   const start = new Date(2025, 1, 1); // 2025-02
   const now = new Date();
-  for (let d = new Date(start); d <= now; d.setMonth(d.getMonth() + 1)) {
+  const end = new Date(now.getFullYear(), now.getMonth() + 6, 1); // 半年後まで表示可能にする
+  for (let d = new Date(start); d <= end; d.setMonth(d.getMonth() + 1)) {
     months.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
   }
   return months.reverse();
@@ -302,21 +303,35 @@ function computePLForMonth(pipelineScope, memberIdsScope, m) {
   };
 }
 
-function renderMonthlyHistoryTable() {
-  const months = getAllMonthsSince202502().slice().reverse(); // 新しい月から順に
+let monthlyHistoryRange = { from: -3, to: 3 };
+
+function monthOffset(baseYm, offset) {
+  const [y, m] = baseYm.split('-').map(Number);
+  const d = new Date(y, m - 1 + offset, 1);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+
+function renderMonthlyHistoryTable(skipAutoScroll) {
+  const todayMonth = today().substring(0,7);
+  const validMonths = getAllMonthsSince202502(); // 2025-02〜半年後まで、新しい月から順
+  const monthsAsc = [];
+  for (let i = monthlyHistoryRange.from; i <= monthlyHistoryRange.to; i++) {
+    const m = monthOffset(todayMonth, i);
+    if (validMonths.includes(m)) monthsAsc.push(m);
+  }
+  const months = monthsAsc.slice().reverse(); // 新しい月から順に表示
 
   function plCells(d) {
     return '<td>' + fmtSalary(d.decRevenue) + '</td><td>' + fmtSalary(d.decProfit) + '</td>' +
       '<td>' + fmtSalary(d.accRevenue) + '</td><td>' + fmtSalary(d.accProfit) + '</td>';
   }
 
-  let html = '<div class="checklist-scroll-wrap" style="max-height:500px"><table class="rev-table">' +
-    '<thead><tr><th>月／担当</th><th>決定ベース売上</th><th>決定ベース粗利</th><th>発生ベース売上</th><th>発生ベース粗利</th></tr></thead><tbody>';
+  let html = '<table class="rev-table"><thead><tr><th>月／担当</th><th>決定ベース売上</th><th>決定ベース粗利</th><th>発生ベース売上</th><th>発生ベース粗利</th></tr></thead><tbody>';
 
   if (currentMember === '全員') {
     months.forEach(function(m) {
       const total = computePLForMonth(PIPELINE_DATA, MEMBERS.map(x=>x.id), m);
-      html += '<tr style="font-weight:600;background:#f9f9f7"><td>' + m + '　（' + MEMBERS.length + '人合計）</td>' + plCells(total) + '</tr>';
+      html += '<tr id="mh-' + m + '" style="font-weight:600;background:#f9f9f7"><td>' + m + '　（' + MEMBERS.length + '人合計）</td>' + plCells(total) + '</tr>';
       MEMBERS.forEach(function(mem) {
         const mp = PIPELINE_DATA.filter(p => p.members && p.members.name === mem.name);
         const d = computePLForMonth(mp, [mem.id], m);
@@ -328,12 +343,48 @@ function renderMonthlyHistoryTable() {
     const myScopedPipeline = filterByMemberName(PIPELINE_DATA, currentMember);
     months.forEach(function(m) {
       const d = computePLForMonth(myScopedPipeline, memberIds, m);
-      html += '<tr><td>' + m + '</td>' + plCells(d) + '</tr>';
+      html += '<tr id="mh-' + m + '"><td>' + m + '</td>' + plCells(d) + '</tr>';
     });
   }
+  html += '</tbody></table>';
 
-  html += '</tbody></table></div>';
-  return html;
+  const el = document.getElementById('monthly-history-wrap');
+  if (el) {
+    el.innerHTML = html;
+    initMonthlyHistoryScroll();
+    if (!skipAutoScroll) {
+      requestAnimationFrame(() => {
+        const anchor = document.getElementById('mh-' + todayMonth);
+        if (anchor) anchor.scrollIntoView({ block: 'start' });
+      });
+    }
+  }
+  return '<div class="checklist-scroll-wrap" id="monthly-history-wrap" style="max-height:500px">' + html + '</div>';
+}
+
+function initMonthlyHistoryScroll() {
+  const wrap = document.getElementById('monthly-history-wrap');
+  if (!wrap || wrap._scrollBound) return;
+  wrap._scrollBound = true;
+  wrap.addEventListener('scroll', function() {
+    if (wrap._expanding) return;
+    if (wrap.scrollTop < 60) {
+      wrap._expanding = true;
+      const prevHeight = wrap.scrollHeight;
+      const prevScrollTop = wrap.scrollTop;
+      monthlyHistoryRange.to += 3;
+      renderMonthlyHistoryTable(true);
+      requestAnimationFrame(() => {
+        wrap.scrollTop = prevScrollTop + (wrap.scrollHeight - prevHeight);
+        wrap._expanding = false;
+      });
+    } else if (wrap.scrollTop + wrap.clientHeight > wrap.scrollHeight - 60) {
+      wrap._expanding = true;
+      monthlyHistoryRange.from -= 3;
+      renderMonthlyHistoryTable(true);
+      wrap._expanding = false;
+    }
+  });
 }
 
 function render() {
