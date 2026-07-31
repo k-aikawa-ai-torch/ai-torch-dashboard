@@ -520,7 +520,7 @@ function render() {
   const recommendActual = memberIds.reduce((s,mid) => { const t = TARGETS.find(t => t.member_id===mid && t.year_month===currentMonth); return s + ((t && t.recommend_actual) || 0); }, 0);
   const avgRecommendPerPerson = recUnique ? recommendActual / recUnique : null;
   const interviewToRecommendRate = interviews ? recUnique/interviews : null;
-  const docPassRate = recDeal ? casualOrFirstDeal/recDeal : null;
+  const docPassRate = recommendActual ? casualOrFirstDeal/recommendActual : null;
   const firstToFinalRate = firstDeal ? finalDeal/firstDeal : null;
   const finalToOfferRate = finalDeal ? offerDeal/finalDeal : null;
   const offerToAcceptRate = offerDeal ? acceptDeal/offerDeal : null;
@@ -550,10 +550,10 @@ function render() {
   }
   html += '</div>';
   html += renderFunnel([
-    { label: 'スカウト通数', value: scoutCount, target: tScout || null },
-    { label: 'リード獲得数', value: leadCount, rate: replyRateInfo.rate },
-    { label: '面談', value: interviews, target: tInterview || null },
-    { label: '推薦', value: dealUniqueLabel(recDeal, recUnique), rate: interviewToRecommendRate, target: tRecommend || null },
+    { label: 'スカウト通数', value: scoutCount + '件', target: tScout || null },
+    { label: 'リード獲得数', value: leadCount + '件', rate: replyRateInfo.rate },
+    { label: '面談', value: interviews + '件', target: tInterview || null },
+    { label: '推薦', value: dealUniqueLabel(recommendActual, recUnique), rate: interviewToRecommendRate, target: tRecommend || null },
     { label: 'カジュアル面談+一次面接', value: dealUniqueLabel(casualOrFirstDeal, casualOrFirstUnique), rate: docPassRate, targetRate: tDocPassRate, target: (tCasual+tFirst) || null },
     { label: '最終面接', value: dealUniqueLabel(finalDeal, finalUnique), rate: firstToFinalRate, targetRate: tFirstToFinalRate, target: tFinal || null },
     { label: '内定', value: dealUniqueLabel(offerDeal, offerUnique), rate: finalToOfferRate, targetRate: tFinalToOfferRate, target: tOffer || null },
@@ -563,9 +563,14 @@ function render() {
 
   html += '<div class="kpi-grid" style="margin-top:16px">';
   html += kpiCard('平均推薦数/人', avgRecommendPerPerson!=null ? Math.round(avgRecommendPerPerson*10)/10 + '件' : '-', '推薦数(手入力計' + recommendActual + '件) ÷ 推薦人数');
-  html += kpiCard('書類通過率', fmtPct(docPassRate), '推薦延べ' + recDeal + '件 → 一次+カジュアル延べ' + casualOrFirstDeal + '件');
+  html += kpiCard('書類通過率', fmtPct(docPassRate), '推薦延べ' + recommendActual + '件 → 一次+カジュアル延べ' + casualOrFirstDeal + '件');
   html += kpiCard('一次→内定率', fmtPct(firstDeal ? offerDeal/firstDeal : null), '一次面接延べ' + firstDeal + '件 → 内定延べ' + offerDeal + '件');
   html += kpiCard('決定単価', decidedUnitPrice!=null ? fmtSalary(decidedUnitPrice) : '-', '売上実績 ÷ 内定承諾件数');
+  html += kpiCard('面談数', interviews + '件', '');
+  html += kpiCard('推薦数', recommendActual + '件', '手入力実績');
+  html += kpiCard('一次面接数', casualOrFirstDeal + '件', 'カジュアル面談+一次面接（延べ）');
+  html += kpiCard('内定数', offerDeal + '件', '延べ件数');
+  html += kpiCard('内定承諾数', acceptDeal + '件', '');
   html += '</div>';
 
   if (currentMember === '全員') {
