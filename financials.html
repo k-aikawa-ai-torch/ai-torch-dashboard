@@ -290,35 +290,47 @@ function setChecklistSort(key) {
   render();
 }
 
-function renderMonthlyHistoryTable() {
-  const months = getAllMonthsSince202502();
+function computePLForMonth(pipelineScope, memberIdsScope, m) {
+  const dec = sumDecisionBasis(pipelineScope, [m]);
+  const acc = sumAccrualBasis(pipelineScope, [m]);
+  const other = sumOtherRevenueForMonths(memberIdsScope, [m]);
+  return {
+    decRevenue: dec.revenue + other.revenue, decProfit: dec.profit + other.profit,
+    accRevenue: acc.revenue + other.revenue, accProfit: acc.profit + other.profit,
+  };
+}
 
-  function buildTableForScope(pipelineScope, memberIdsScope, title) {
-    let html = '<div class="section-title" style="margin-top:16px">' + title + '</div>';
-    html += '<div style="overflow-x:auto"><table class="rev-table"><thead><tr><th>月</th><th>決定ベース売上</th><th>決定ベース粗利</th><th>発生ベース売上</th><th>発生ベース粗利</th></tr></thead><tbody>';
-    months.forEach(m => {
-      const dec = sumDecisionBasis(pipelineScope, [m]);
-      const acc = sumAccrualBasis(pipelineScope, [m]);
-      const other = sumOtherRevenueForMonths(memberIdsScope, [m]);
-      html += '<tr><td>' + m + '</td>' +
-        '<td>' + fmtSalary(dec.revenue + other.revenue) + '</td><td>' + fmtSalary(dec.profit + other.profit) + '</td>' +
-        '<td>' + fmtSalary(acc.revenue + other.revenue) + '</td><td>' + fmtSalary(acc.profit + other.profit) + '</td></tr>';
-    });
-    html += '</tbody></table></div>';
-    return html;
+function renderMonthlyHistoryTable() {
+  const months = getAllMonthsSince202502().slice().reverse(); // 新しい月から順に
+
+  function plCells(d) {
+    return '<td>' + fmtSalary(d.decRevenue) + '</td><td>' + fmtSalary(d.decProfit) + '</td>' +
+      '<td>' + fmtSalary(d.accRevenue) + '</td><td>' + fmtSalary(d.accProfit) + '</td>';
   }
 
-  let html = '<div class="section-title" style="margin-top:20px">月次推移（2025年2月〜現在）</div>';
+  let html = '<div class="checklist-scroll-wrap" style="max-height:500px"><table class="rev-table">' +
+    '<thead><tr><th>月／担当</th><th>決定ベース売上</th><th>決定ベース粗利</th><th>発生ベース売上</th><th>発生ベース粗利</th></tr></thead><tbody>';
+
   if (currentMember === '全員') {
-    MEMBERS.forEach(function(m) {
-      const mp = PIPELINE_DATA.filter(p => p.members && p.members.name === m.name);
-      html += buildTableForScope(mp, [m.id], (m.display_name || MEMBER_NAMES[m.name] || m.name));
+    months.forEach(function(m) {
+      const total = computePLForMonth(PIPELINE_DATA, MEMBERS.map(x=>x.id), m);
+      html += '<tr style="font-weight:600;background:#f9f9f7"><td>' + m + '　（' + MEMBERS.length + '人合計）</td>' + plCells(total) + '</tr>';
+      MEMBERS.forEach(function(mem) {
+        const mp = PIPELINE_DATA.filter(p => p.members && p.members.name === mem.name);
+        const d = computePLForMonth(mp, [mem.id], m);
+        html += '<tr><td style="padding-left:24px;color:#6B7A99">' + (mem.display_name || MEMBER_NAMES[mem.name] || mem.name) + '</td>' + plCells(d) + '</tr>';
+      });
     });
   } else {
     const memberIds = [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
     const myScopedPipeline = filterByMemberName(PIPELINE_DATA, currentMember);
-    html += buildTableForScope(myScopedPipeline, memberIds, currentMember);
+    months.forEach(function(m) {
+      const d = computePLForMonth(myScopedPipeline, memberIds, m);
+      html += '<tr><td>' + m + '</td>' + plCells(d) + '</tr>';
+    });
   }
+
+  html += '</tbody></table></div>';
   return html;
 }
 
@@ -363,7 +375,6 @@ function render() {
   html += plCard('決定ベース（内定承諾日基準）', '#0D40D9', sumDecisionBasis);
   html += plCard('発生ベース（入社日基準）', '#eb6834', sumAccrualBasis);
   html += '</div>';
-  html += renderMonthlyHistoryTable();
   html += '</div>';
 
   // ===== その他売上入力 =====
@@ -395,6 +406,12 @@ function render() {
     html += '</div>';
   }
   html += renderChecklist(myPipeline);
+  html += '</div>';
+
+  // ===== 月次推移 =====
+  html += '<div class="section-block">';
+  html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">月次推移</span><span class="sub">2025年2月〜現在</span></div>';
+  html += renderMonthlyHistoryTable();
   html += '</div>';
 
   el.innerHTML = html;
@@ -544,12 +561,12 @@ function renderChecklist(pipelineItems) {
     '<col style="width:100px"><col style="width:100px"><col style="width:90px"><col style="width:90px"><col style="width:90px"><col style="width:90px">' +
     '<col style="width:100px"><col style="width:100px">' +
     CHECKLIST_ITEMS.map(()=>'<col style="width:95px">').join('') +
-    '<col style="width:150px"></colgroup>' +
+    '<col style="width:150px"><col style="width:60px"></colgroup>' +
     '<thead><tr>' +
     th('candidate','候補者') + th('company','企業') + th('member','担当') + th('source','流入経路') + th('accept_date','内定承諾日') + th('hire_date','入社日') +
     th('theoretical_salary','理論年収') + th('cost','原価') + th('profit','粗利') + th('revenue','売上金額') + th('payment_date','入金日') + th('refund_date','出金日');
   CHECKLIST_ITEMS.forEach(it => { html += '<th>' + it.label + '</th>'; });
-  html += '<th>備考</th></tr></thead><tbody>';
+  html += '<th>備考</th><th></th></tr></thead><tbody>';
 
   targets.forEach(p => {
     const acceptDate = acceptMap[p.id] ? acceptMap[p.id].substring(0,10) : null;
@@ -563,7 +580,7 @@ function renderChecklist(pipelineItems) {
     html += '<td style="color:#6B7A99">' + (p.companies?.name||'-') + '</td>';
     html += '<td style="color:#6B7A99">' + (p.members?.display_name||'-') + '</td>';
     html += '<td style="color:#6B7A99">' + (cleanSource(p.candidates?.source)||'-') + '</td>';
-    html += '<td style="color:#6B7A99">' + (acceptDate||'-') + '</td>';
+    html += '<td><input type="date" class="hire-date-input" value="' + (acceptDate||'') + '" onchange="saveAcceptDate(\'' + p.id + '\',this.value)"></td>';
     html += '<td><input type="date" class="hire-date-input" value="' + (p.hire_date||'') + '" onchange="saveHireDate(\'' + p.id + '\',this.value)"></td>';
     html += '<td><input type="number" class="hire-date-input" style="width:90px" value="' + theoreticalSalary + '" onchange="saveField(\'' + p.id + '\',\'theoretical_salary\',this.value?parseFloat(this.value):null)"></td>';
     html += '<td style="color:#6B7A99">' + (cost != null ? fmtSalary(cost) : '-') + '</td>';
@@ -585,6 +602,7 @@ function renderChecklist(pipelineItems) {
         '</td>';
     });
     html += '<td><input type="text" class="hire-date-input" style="width:140px" value="' + (p.checklist_note||'').replace(/"/g,'&quot;') + '" placeholder="備考" onchange="saveField(\'' + p.id + '\',\'checklist_note\',this.value||null)"></td>';
+    html += '<td><button class="icon-btn" style="color:#b3261e" title="決定を取り消す" onclick="deleteDecision(\'' + p.id + '\')">🗑️</button></td>';
     html += '</tr>';
   });
   html += '</tbody></table></div>';
@@ -596,6 +614,70 @@ async function saveField(pipelineId, key, value) {
   if (error) { alert('保存に失敗しました: ' + error.message); return; }
   const p = PIPELINE_DATA.find(x => x.id === pipelineId);
   if (p) p[key] = value;
+  render();
+}
+
+function pipelinePhaseToCandidatePhase(pipelinePhase) {
+  const map = {
+    '内定': '内定KITAAA',
+    '最終面接': '選考なう', '二次～面接': '選考なう', '一次面接': '選考なう', 'カジュアル面談': '選考なう', '書類選考': '選考なう',
+    '応募承諾': '求人提案なう', '提案中': '求人提案なう', '未提案': '求人提案なう',
+  };
+  return map[pipelinePhase] || '選考なう';
+}
+
+async function deleteDecision(pipelineId) {
+  const p = PIPELINE_DATA.find(x => x.id === pipelineId);
+  if (!p) return;
+  // 内定承諾の直前のフェーズ履歴を探し、そこまでフェーズを戻す
+  const allHistory = PHASE_HISTORY.filter(h => h.pipeline_id === pipelineId).slice().sort((a,b) => a.changed_at.localeCompare(b.changed_at));
+  const acceptRecords = allHistory.filter(h => h.phase === '内定承諾');
+  if (!acceptRecords.length) { alert('内定承諾の履歴が見つかりませんでした'); return; }
+  const acceptRecord = acceptRecords[0];
+  const priorRecords = allHistory.filter(h => h.changed_at < acceptRecord.changed_at);
+  const priorPhase = priorRecords.length ? priorRecords[priorRecords.length - 1].phase : null;
+
+  if (!confirm((p.candidates?.name||'候補者') + ' の内定承諾を取り消します。決定日・粗利・決定ヨミなどの記録が削除され、フェーズ/ステータスも登録前' + (priorPhase ? '（' + priorPhase + '）' : '') + 'の状態に戻りますがよろしいですか？')) return;
+
+  const { error: delError } = await sb.from('pipeline_phase_history').delete().eq('pipeline_id', pipelineId).eq('phase', '内定承諾');
+  if (delError) { alert('決定履歴の削除に失敗しました: ' + delError.message); return; }
+
+  const pipelineResetPayload = { status: '進行中' };
+  if (priorPhase) pipelineResetPayload.phase = priorPhase;
+  const { error: pipelineError } = await sb.from('pipeline').update(pipelineResetPayload).eq('id', pipelineId);
+  if (pipelineError) { alert('パイプラインのフェーズ/ステータスの更新に失敗しました: ' + pipelineError.message); return; }
+  Object.assign(p, pipelineResetPayload);
+
+  if (p.candidate_id) {
+    const resetPayload = {
+      gross_profit: null, gross_profit_fee_rate: null, gross_profit_calculated_at: null,
+      decision_yomi: null, revenue_yomi: null, theoretical_salary: null,
+      phase: pipelinePhaseToCandidatePhase(priorPhase), status: '進行中',
+    };
+    const { error: resetError } = await sb.from('candidates').update(resetPayload).eq('id', p.candidate_id);
+    if (resetError) { alert('候補者データのリセットに失敗しました: ' + resetError.message); return; }
+    if (p.candidates) Object.assign(p.candidates, resetPayload);
+  }
+  const refreshedHistory = await fetchAllRange('pipeline_phase_history', '*');
+  PHASE_HISTORY = refreshedHistory || PHASE_HISTORY.filter(h => !(h.pipeline_id === pipelineId && h.phase === '内定承諾'));
+  alert('内定承諾を取り消しました');
+  render();
+}
+
+async function saveAcceptDate(pipelineId, value) {
+  if (!value) { alert('日付を入力してください'); return; }
+  const newDate = new Date(value + 'T12:00:00').toISOString();
+  const records = PHASE_HISTORY.filter(h => h.pipeline_id === pipelineId && h.phase === '内定承諾');
+  if (!records.length) { alert('内定承諾の履歴が見つかりませんでした'); return; }
+  const record = records.slice().sort((a,b) => a.changed_at.localeCompare(b.changed_at))[0];
+  const { error } = await sb.from('pipeline_phase_history').update({ changed_at: newDate }).eq('pipeline_id', pipelineId).eq('phase', '内定承諾').eq('changed_at', record.changed_at);
+  if (error) { alert('決定日の更新に失敗しました: ' + error.message); return; }
+  record.changed_at = newDate;
+  const p = PIPELINE_DATA.find(x => x.id === pipelineId);
+  if (p && p.candidate_id && p.candidates) {
+    const { error: candError } = await sb.from('candidates').update({ gross_profit_calculated_at: newDate }).eq('id', p.candidate_id);
+    if (!candError) p.candidates.gross_profit_calculated_at = newDate;
+  }
   render();
 }
 
