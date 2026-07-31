@@ -115,6 +115,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const MEMBER_MAP = {'相川':'aikawa_kenta','永井':'nagai_yudai','會澤':'aizawa_yuma'};
 const MEMBER_NAMES = {'aikawa_kenta':'相川','nagai_yudai':'永井','aizawa_yuma':'會澤'};
 const ACCEPT_PHASES = ['内定承諾','入社待ち','入社済み'];
+const PIPELINE_PHASE_LIST = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾','入社待ち','入社済み'];
 
 let MEMBERS = [], PIPELINE_DATA = [], CANDIDATE_DATA = [], PHASE_HISTORY = [], OTHER_REVENUE = [];
 let currentMember = '全員';
@@ -635,15 +636,21 @@ async function deleteDecision(pipelineId) {
   if (!acceptRecords.length) { alert('内定承諾の履歴が見つかりませんでした'); return; }
   const acceptRecord = acceptRecords[0];
   const priorRecords = allHistory.filter(h => h.changed_at < acceptRecord.changed_at);
-  const priorPhase = priorRecords.length ? priorRecords[priorRecords.length - 1].phase : null;
+  let priorPhase = priorRecords.length ? priorRecords[priorRecords.length - 1].phase : null;
+
+  if (!priorPhase) {
+    const input = prompt('内定承諾より前のフェーズ履歴が見つかりませんでした。戻すフェーズを入力してください（' + PIPELINE_PHASE_LIST.join(' / ') + '）', '最終面接');
+    if (input === null) return;
+    if (PIPELINE_PHASE_LIST.includes(input)) priorPhase = input;
+    else { alert('入力されたフェーズが一覧にありません。処理を中止しました。'); return; }
+  }
 
   if (!confirm((p.candidates?.name||'候補者') + ' の内定承諾を取り消します。決定日・粗利・決定ヨミなどの記録が削除され、フェーズ/ステータスも登録前' + (priorPhase ? '（' + priorPhase + '）' : '') + 'の状態に戻りますがよろしいですか？')) return;
 
   const { error: delError } = await sb.from('pipeline_phase_history').delete().eq('pipeline_id', pipelineId).eq('phase', '内定承諾');
   if (delError) { alert('決定履歴の削除に失敗しました: ' + delError.message); return; }
 
-  const pipelineResetPayload = { status: '進行中' };
-  if (priorPhase) pipelineResetPayload.phase = priorPhase;
+  const pipelineResetPayload = { status: '進行中', phase: priorPhase };
   const { error: pipelineError } = await sb.from('pipeline').update(pipelineResetPayload).eq('id', pipelineId);
   if (pipelineError) { alert('パイプラインのフェーズ/ステータスの更新に失敗しました: ' + pipelineError.message); return; }
   Object.assign(p, pipelineResetPayload);
