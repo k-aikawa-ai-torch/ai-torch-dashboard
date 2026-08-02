@@ -420,6 +420,12 @@ function sumActualRevenueForMonths(pipelineItems, candidateItems, monthList) {
     const c = candidateItems.find(function(x) { return x.id === p.candidate_id; }) || CANDIDATE_DATA.find(function(x) { return x.id === p.candidate_id; });
     if (c && c.revenue_forecast) sum += c.revenue_forecast;
   });
+  // 入社前辞退などによる返金：出金月がこの期間に含まれる場合、売上をマイナス計上する
+  pipelineItems.forEach(function(p) {
+    if (!p.refund_date || monthList.indexOf(p.refund_date.substring(0,7)) === -1) return;
+    const c = candidateItems.find(function(x) { return x.id === p.candidate_id; }) || CANDIDATE_DATA.find(function(x) { return x.id === p.candidate_id; });
+    if (c && c.revenue_forecast) sum -= c.revenue_forecast;
+  });
   return sum;
 }
 
@@ -552,11 +558,17 @@ function calcActuals(pipelineItems, candidateItems, month) {
   const revenueSum = sumForecastRevenue(pipelineItems, candidateItems);
 
   // 粗利：当月中に確定（内定承諾への到達 or 再計算）した候補者のgross_profit合計
-  const grossProfitSum = candidateItems.reduce(function(sum, c) {
+  let grossProfitSum = candidateItems.reduce(function(sum, c) {
     if (c.gross_profit == null || !c.gross_profit_calculated_at) return sum;
     const d = c.gross_profit_calculated_at.substring(0,10);
     return (d >= start && d < end) ? sum + c.gross_profit : sum;
   }, 0);
+  // 入社前辞退などによる返金：出金月が当月の場合、粗利をマイナス計上する
+  pipelineItems.forEach(function(p) {
+    if (!p.refund_date || !(p.refund_date >= start && p.refund_date < end)) return;
+    const c = candidateItems.find(function(x) { return x.id === p.candidate_id; });
+    if (c && c.gross_profit != null) grossProfitSum -= c.gross_profit;
+  });
 
   // 面談数：当月登録候補者数
   const interviews = monthCandidates.length;

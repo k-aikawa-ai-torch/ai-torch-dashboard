@@ -409,6 +409,12 @@ function sumActualRevenueForMonths(pipelineItems, candidateItems, monthList) {
     const c = CANDIDATE_DATA.find(x => x.id === p.candidate_id);
     if (c && c.revenue_forecast) sum += c.revenue_forecast;
   });
+  // 入社前辞退などによる返金：出金月がこの期間に含まれる場合、売上をマイナス計上する
+  pipelineItems.forEach(p => {
+    if (!p.refund_date || !monthList.includes(p.refund_date.substring(0,7))) return;
+    const c = CANDIDATE_DATA.find(x => x.id === p.candidate_id);
+    if (c && c.revenue_forecast) sum -= c.revenue_forecast;
+  });
   return sum;
 }
 function sumGrossProfitForMonths(candidateItems, monthList) {

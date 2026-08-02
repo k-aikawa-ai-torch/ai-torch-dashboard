@@ -258,6 +258,12 @@ function sumDecisionBasis(pipelineItems, monthList) {
     if (p.candidates?.revenue_forecast) revenue += p.candidates.revenue_forecast;
     if (p.candidates?.gross_profit != null) profit += p.candidates.gross_profit;
   });
+  // 入社前辞退などによる返金：出金月がこの期間に含まれる場合、売上・粗利をマイナス計上する
+  pipelineItems.forEach(p => {
+    if (!p.refund_date || !monthList.includes(p.refund_date.substring(0,7))) return;
+    if (p.candidates?.revenue_forecast) revenue -= p.candidates.revenue_forecast;
+    if (p.candidates?.gross_profit != null) profit -= p.candidates.gross_profit;
+  });
   return { revenue, profit };
 }
 
@@ -270,6 +276,12 @@ function sumAccrualBasis(pipelineItems, monthList) {
     counted.add(p.candidate_id);
     if (p.candidates?.revenue_forecast) revenue += p.candidates.revenue_forecast;
     if (p.candidates?.gross_profit != null) profit += p.candidates.gross_profit;
+  });
+  // 入社前辞退などによる返金：出金月がこの期間に含まれる場合、売上・粗利をマイナス計上する
+  pipelineItems.forEach(p => {
+    if (!p.refund_date || !monthList.includes(p.refund_date.substring(0,7))) return;
+    if (p.candidates?.revenue_forecast) revenue -= p.candidates.revenue_forecast;
+    if (p.candidates?.gross_profit != null) profit -= p.candidates.gross_profit;
   });
   return { revenue, profit };
 }
