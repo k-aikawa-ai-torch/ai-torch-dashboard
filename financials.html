@@ -399,6 +399,13 @@ function initMonthlyHistoryScroll() {
   });
 }
 
+// 入力の保存など、画面位置を保ったまま再描画したい場合に使う
+function renderKeepScroll() {
+  const y = window.scrollY;
+  render();
+  requestAnimationFrame(() => window.scrollTo(0, y));
+}
+
 function render() {
   const el = document.getElementById('content');
   const myPipeline = filterByMemberName(PIPELINE_DATA, currentMember);
@@ -529,7 +536,7 @@ async function saveOtherRevenueField(id, field, value) {
     r[field] = value;
     if (field === 'member_id') { r.members = MEMBERS.find(m => m.id === value) || null; }
   }
-  render();
+  renderKeepScroll();
 }
 
 async function addOtherRevenue() {
@@ -551,7 +558,7 @@ async function deleteOtherRevenue(id) {
   const { error } = await sb.from('other_revenue').delete().eq('id', id);
   if (error) { alert('削除に失敗しました: ' + error.message); return; }
   OTHER_REVENUE = OTHER_REVENUE.filter(r => r.id !== id);
-  render();
+  renderKeepScroll();
 }
 
 // ============ 事務処理チェックリスト ============
@@ -679,7 +686,7 @@ async function saveField(pipelineId, key, value) {
   if (error) { alert('保存に失敗しました: ' + error.message); return; }
   const p = PIPELINE_DATA.find(x => x.id === pipelineId);
   if (p) p[key] = value;
-  render();
+  renderKeepScroll();
 }
 
 function pipelinePhaseToCandidatePhase(pipelinePhase) {
@@ -749,7 +756,7 @@ async function saveAcceptDate(pipelineId, value) {
     const { error: candError } = await sb.from('candidates').update({ gross_profit_calculated_at: newDate }).eq('id', p.candidate_id);
     if (!candError) p.candidates.gross_profit_calculated_at = newDate;
   }
-  render();
+  renderKeepScroll();
 }
 
 async function saveHireDate(pipelineId, value) {
@@ -765,7 +772,7 @@ async function saveHireDate(pipelineId, value) {
     p.hire_date = value || null;
     if (payload.payment_date) p.payment_date = payload.payment_date;
   }
-  render();
+  renderKeepScroll();
 }
 
 async function toggleChecklistItem(pipelineId, key, checked) {
@@ -773,7 +780,7 @@ async function toggleChecklistItem(pipelineId, key, checked) {
   if (error) { alert('保存に失敗しました: ' + error.message); return; }
   const p = PIPELINE_DATA.find(x => x.id === pipelineId);
   if (p) p[key] = checked;
-  render();
+  renderKeepScroll();
 }
 </script>
 </body>
