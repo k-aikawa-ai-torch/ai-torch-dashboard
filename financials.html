@@ -402,8 +402,25 @@ function initMonthlyHistoryScroll() {
 // 入力の保存など、画面位置を保ったまま再描画したい場合に使う
 function renderKeepScroll() {
   const y = window.scrollY;
+  const scrollWraps = ['checklist-scroll-wrap', 'monthly-history-wrap'];
+  const savedLeft = {};
+  scrollWraps.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) savedLeft[id] = el.scrollLeft;
+  });
   render();
-  requestAnimationFrame(() => window.scrollTo(0, y));
+  const restore = () => {
+    window.scrollTo(0, y);
+    scrollWraps.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && savedLeft[id] != null) el.scrollLeft = savedLeft[id];
+    });
+  };
+  requestAnimationFrame(() => {
+    restore();
+    requestAnimationFrame(restore);
+  });
+  setTimeout(restore, 50);
 }
 
 function render() {
@@ -628,7 +645,7 @@ function renderChecklist(pipelineItems) {
     return '<th class="sort-th" onclick="setChecklistSort(\'' + key + '\')">' + label +
       '<span class="sort-arrow' + (active ? ' active' : '') + '">' + (active ? (checklistSortDir===1?'▲':'▼') : '↕') + '</span></th>';
   }
-  let html = '<div class="checklist-scroll-wrap"><table class="checklist-table">' +
+  let html = '<div class="checklist-scroll-wrap" id="checklist-scroll-wrap"><table class="checklist-table">' +
     '<colgroup><col style="width:90px"><col style="width:140px"><col style="width:60px"><col style="width:140px">' +
     '<col style="width:100px"><col style="width:100px"><col style="width:90px"><col style="width:90px"><col style="width:90px"><col style="width:90px">' +
     '<col style="width:100px"><col style="width:100px">' +
