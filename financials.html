@@ -315,12 +315,37 @@ function computePLForMonth(pipelineScope, memberIdsScope, m) {
   };
 }
 
+function computePLForMonths(pipelineScope, memberIdsScope, monthsArr) {
+  const dec = sumDecisionBasis(pipelineScope, monthsArr);
+  const acc = sumAccrualBasis(pipelineScope, monthsArr);
+  const other = sumOtherRevenueForMonths(memberIdsScope, monthsArr);
+  return {
+    decRevenue: dec.revenue + other.revenue, decProfit: dec.profit + other.profit,
+    accRevenue: acc.revenue + other.revenue, accProfit: acc.profit + other.profit,
+  };
+}
+
 let monthlyHistoryRange = { from: -3, to: 3 };
 
 function monthOffset(baseYm, offset) {
   const [y, m] = baseYm.split('-').map(Number);
   const d = new Date(y, m - 1 + offset, 1);
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+
+// 指定した月リスト（昇順）を、期（4ヶ月区切り）ごとにグループ化する
+function groupMonthsByTerm(monthsAsc) {
+  const groups = [];
+  let currentKey = null;
+  monthsAsc.forEach(m => {
+    const info = getTermInfo(m);
+    if (info.termRangeLabel !== currentKey) {
+      groups.push({ key: info.termRangeLabel, label: info.termLabel + '（' + info.termRangeLabel + '）', months: [] });
+      currentKey = info.termRangeLabel;
+    }
+    groups[groups.length - 1].months.push(m);
+  });
+  return groups;
 }
 
 function renderMonthlyHistoryTable(skipAutoScroll) {
@@ -331,7 +356,7 @@ function renderMonthlyHistoryTable(skipAutoScroll) {
     const m = monthOffset(todayMonth, i);
     if (validMonths.includes(m)) monthsAsc.push(m);
   }
-  const months = monthsAsc.slice().reverse(); // 新しい月から順に表示
+  const groups = groupMonthsByTerm(monthsAsc).reverse(); // 新しい期から順に
 
   function plCells(d) {
     return '<td>' + fmtSalary(d.decRevenue) + '</td><td>' + fmtSalary(d.decProfit) + '</td>' +
@@ -341,21 +366,30 @@ function renderMonthlyHistoryTable(skipAutoScroll) {
   let html = '<table class="rev-table"><thead><tr><th>月／担当</th><th>決定ベース売上</th><th>決定ベース粗利</th><th>発生ベース売上</th><th>発生ベース粗利</th></tr></thead><tbody>';
 
   if (currentMember === '全員') {
-    months.forEach(function(m) {
-      const total = computePLForMonth(PIPELINE_DATA, MEMBERS.map(x=>x.id), m);
-      html += '<tr id="mh-' + m + '" style="font-weight:600;background:#f9f9f7"><td>' + m + '　（' + MEMBERS.length + '人合計）</td>' + plCells(total) + '</tr>';
-      MEMBERS.forEach(function(mem) {
-        const mp = PIPELINE_DATA.filter(p => p.members && p.members.name === mem.name);
-        const d = computePLForMonth(mp, [mem.id], m);
-        html += '<tr><td style="padding-left:24px;color:#6B7A99">' + (mem.display_name || MEMBER_NAMES[mem.name] || mem.name) + '</td>' + plCells(d) + '</tr>';
+    const allMemberIds = MEMBERS.map(x => x.id);
+    groups.forEach(function(g) {
+      const termTotal = computePLForMonths(PIPELINE_DATA, allMemberIds, g.months);
+      html += '<tr style="font-weight:700;background:#eef2fc"><td>' + g.label + ' 小計</td>' + plCells(termTotal) + '</tr>';
+      g.months.slice().reverse().forEach(function(m) {
+        const total = computePLForMonth(PIPELINE_DATA, allMemberIds, m);
+        html += '<tr id="mh-' + m + '" style="font-weight:600;background:#f9f9f7"><td>' + m + '　（' + MEMBERS.length + '人合計）</td>' + plCells(total) + '</tr>';
+        MEMBERS.forEach(function(mem) {
+          const mp = PIPELINE_DATA.filter(p => p.members && p.members.name === mem.name);
+          const d = computePLForMonth(mp, [mem.id], m);
+          html += '<tr><td style="padding-left:24px;color:#6B7A99">' + (mem.display_name || MEMBER_NAMES[mem.name] || mem.name) + '</td>' + plCells(d) + '</tr>';
+        });
       });
     });
   } else {
     const memberIds = [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
     const myScopedPipeline = filterByMemberName(PIPELINE_DATA, currentMember);
-    months.forEach(function(m) {
-      const d = computePLForMonth(myScopedPipeline, memberIds, m);
-      html += '<tr id="mh-' + m + '"><td>' + m + '</td>' + plCells(d) + '</tr>';
+    groups.forEach(function(g) {
+      const termTotal = computePLForMonths(myScopedPipeline, memberIds, g.months);
+      html += '<tr style="font-weight:700;background:#eef2fc"><td>' + g.label + ' 小計</td>' + plCells(termTotal) + '</tr>';
+      g.months.slice().reverse().forEach(function(m) {
+        const d = computePLForMonth(myScopedPipeline, memberIds, m);
+        html += '<tr id="mh-' + m + '"><td>' + m + '</td>' + plCells(d) + '</tr>';
+      });
     });
   }
   html += '</tbody></table>';
@@ -408,6 +442,10 @@ function renderKeepScroll() {
     const el = document.getElementById(id);
     if (el) savedLeft[id] = el.scrollLeft;
   });
+  // 再描画で今フォーカスしている要素が消えると、ブラウザが勝手にスクロールしてしまうため、
+  // 同じセルにフォーカスを戻す（scrollは起こさない）
+  const activeCell = document.activeElement && document.activeElement.getAttribute
+    ? document.activeElement.getAttribute('data-cell') : null;
   render();
   const restore = () => {
     window.scrollTo(0, y);
@@ -415,6 +453,10 @@ function renderKeepScroll() {
       const el = document.getElementById(id);
       if (el && savedLeft[id] != null) el.scrollLeft = savedLeft[id];
     });
+    if (activeCell) {
+      const el = document.querySelector('[data-cell="' + activeCell.replace(/"/g,'\\"') + '"]');
+      if (el && el.focus) el.focus({ preventScroll: true });
+    }
   };
   requestAnimationFrame(() => {
     restore();
@@ -669,14 +711,14 @@ function renderChecklist(pipelineItems) {
     html += '<td style="color:#6B7A99">' + (p.companies?.name||'-') + '</td>';
     html += '<td style="color:#6B7A99">' + (p.members?.display_name||'-') + '</td>';
     html += '<td style="color:#6B7A99">' + (cleanSource(p.candidates?.source)||'-') + '</td>';
-    html += '<td><input type="date" class="hire-date-input" value="' + (acceptDate||'') + '" onchange="saveAcceptDate(\'' + p.id + '\',this.value)"></td>';
-    html += '<td><input type="date" class="hire-date-input" value="' + (p.hire_date||'') + '" onchange="saveHireDate(\'' + p.id + '\',this.value)"></td>';
-    html += '<td><input type="number" class="hire-date-input" style="width:90px" value="' + theoreticalSalary + '" onchange="saveField(\'' + p.id + '\',\'theoretical_salary\',this.value?parseFloat(this.value):null)"></td>';
+    html += '<td><input type="date" class="hire-date-input" data-cell="' + p.id + ':accept_date" value="' + (acceptDate||'') + '" onchange="saveAcceptDate(\'' + p.id + '\',this.value)"></td>';
+    html += '<td><input type="date" class="hire-date-input" data-cell="' + p.id + ':hire_date" value="' + (p.hire_date||'') + '" onchange="saveHireDate(\'' + p.id + '\',this.value)"></td>';
+    html += '<td><input type="number" class="hire-date-input" data-cell="' + p.id + ':theoretical_salary" style="width:90px" value="' + theoreticalSalary + '" onchange="saveField(\'' + p.id + '\',\'theoretical_salary\',this.value?parseFloat(this.value):null)"></td>';
     html += '<td style="color:#6B7A99">' + (cost != null ? fmtSalary(cost) : '-') + '</td>';
     html += '<td style="color:#1baf7a;font-weight:500">' + (grossProfit != null ? fmtSalary(grossProfit) : '-') + '</td>';
     html += '<td style="color:#6B7A99">' + fmtSalary(revenueForecast) + '</td>';
-    html += '<td><input type="date" class="hire-date-input" value="' + (p.payment_date||'') + '" onchange="saveField(\'' + p.id + '\',\'payment_date\',this.value||null)"></td>';
-    html += '<td><input type="date" class="hire-date-input" value="' + (p.refund_date||'') + '" onchange="saveField(\'' + p.id + '\',\'refund_date\',this.value||null)"></td>';
+    html += '<td><input type="date" class="hire-date-input" data-cell="' + p.id + ':payment_date" value="' + (p.payment_date||'') + '" onchange="saveField(\'' + p.id + '\',\'payment_date\',this.value||null)"></td>';
+    html += '<td><input type="date" class="hire-date-input" data-cell="' + p.id + ':refund_date" value="' + (p.refund_date||'') + '" onchange="saveField(\'' + p.id + '\',\'refund_date\',this.value||null)"></td>';
 
     CHECKLIST_ITEMS.forEach(it => {
       let dueDate = null;
@@ -687,10 +729,10 @@ function renderChecklist(pipelineItems) {
       const isOverdue = !isDone && dueDate && dueDate < todayStr;
       html += '<td class="chk-cell' + (isOverdue ? ' overdue' : '') + '">' +
         (dueDate ? '<span class="chk-label">' + dueDate + '</span>' : '') +
-        '<input type="checkbox" ' + (isDone ? 'checked' : '') + ' onchange="toggleChecklistItem(\'' + p.id + '\',\'' + it.key + '\',this.checked)">' +
+        '<input type="checkbox" data-cell="' + p.id + ':' + it.key + '" ' + (isDone ? 'checked' : '') + ' onchange="toggleChecklistItem(\'' + p.id + '\',\'' + it.key + '\',this.checked)">' +
         '</td>';
     });
-    html += '<td><input type="text" class="hire-date-input" style="width:140px" value="' + (p.checklist_note||'').replace(/"/g,'&quot;') + '" placeholder="備考" onchange="saveField(\'' + p.id + '\',\'checklist_note\',this.value||null)"></td>';
+    html += '<td><input type="text" class="hire-date-input" data-cell="' + p.id + ':checklist_note" style="width:140px" value="' + (p.checklist_note||'').replace(/"/g,'&quot;') + '" placeholder="備考" onchange="saveField(\'' + p.id + '\',\'checklist_note\',this.value||null)"></td>';
     html += '<td><button class="icon-btn" style="color:#b3261e" title="決定を取り消す" onclick="deleteDecision(\'' + p.id + '\')">🗑️</button></td>';
     html += '</tr>';
   });
