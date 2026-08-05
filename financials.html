@@ -334,18 +334,23 @@ function monthOffset(baseYm, offset) {
 }
 
 // 指定した月リスト（昇順）を、期（4ヶ月区切り）ごとにグループ化する
-function groupMonthsByTerm(monthsAsc) {
-  const groups = [];
-  let currentKey = null;
+function groupMonthsByYearAndTerm(monthsAsc) {
+  const years = [];
+  let yearKey = null, termKey = null;
   monthsAsc.forEach(m => {
     const info = getTermInfo(m);
-    if (info.termRangeLabel !== currentKey) {
-      groups.push({ key: info.termRangeLabel, label: info.termLabel + '（' + info.termRangeLabel + '）', months: [] });
-      currentKey = info.termRangeLabel;
+    if (info.yearLabel !== yearKey) {
+      years.push({ yearLabel: info.yearLabel, terms: [] });
+      yearKey = info.yearLabel; termKey = null;
     }
-    groups[groups.length - 1].months.push(m);
+    const yearGroup = years[years.length - 1];
+    if (info.termRangeLabel !== termKey) {
+      yearGroup.terms.push({ key: info.termRangeLabel, label: info.termLabel + '（' + info.termRangeLabel + '）', months: [] });
+      termKey = info.termRangeLabel;
+    }
+    yearGroup.terms[yearGroup.terms.length - 1].months.push(m);
   });
-  return groups;
+  return years;
 }
 
 function renderMonthlyHistoryTable(skipAutoScroll) {
@@ -356,7 +361,7 @@ function renderMonthlyHistoryTable(skipAutoScroll) {
     const m = monthOffset(todayMonth, i);
     if (validMonths.includes(m)) monthsAsc.push(m);
   }
-  const groups = groupMonthsByTerm(monthsAsc).reverse(); // 新しい期から順に
+  const years = groupMonthsByYearAndTerm(monthsAsc).reverse(); // 新しい年度から順に
 
   function plCells(d) {
     return '<td>' + fmtSalary(d.decRevenue) + '</td><td>' + fmtSalary(d.decProfit) + '</td>' +
@@ -367,28 +372,38 @@ function renderMonthlyHistoryTable(skipAutoScroll) {
 
   if (currentMember === '全員') {
     const allMemberIds = MEMBERS.map(x => x.id);
-    groups.forEach(function(g) {
-      const termTotal = computePLForMonths(PIPELINE_DATA, allMemberIds, g.months);
-      html += '<tr style="font-weight:700;background:#eef2fc"><td>' + g.label + ' 小計</td>' + plCells(termTotal) + '</tr>';
-      g.months.slice().reverse().forEach(function(m) {
-        const total = computePLForMonth(PIPELINE_DATA, allMemberIds, m);
-        html += '<tr id="mh-' + m + '" style="font-weight:600;background:#f9f9f7"><td>' + m + '　（' + MEMBERS.length + '人合計）</td>' + plCells(total) + '</tr>';
-        MEMBERS.forEach(function(mem) {
-          const mp = PIPELINE_DATA.filter(p => p.members && p.members.name === mem.name);
-          const d = computePLForMonth(mp, [mem.id], m);
-          html += '<tr><td style="padding-left:24px;color:#6B7A99">' + (mem.display_name || MEMBER_NAMES[mem.name] || mem.name) + '</td>' + plCells(d) + '</tr>';
+    years.forEach(function(y) {
+      const yearMonthsAll = y.terms.flatMap(t => t.months);
+      const yearTotal = computePLForMonths(PIPELINE_DATA, allMemberIds, yearMonthsAll);
+      html += '<tr style="font-weight:800;background:#dbe4fa"><td>' + y.yearLabel + '　年間合計</td>' + plCells(yearTotal) + '</tr>';
+      y.terms.slice().reverse().forEach(function(g) {
+        const termTotal = computePLForMonths(PIPELINE_DATA, allMemberIds, g.months);
+        html += '<tr style="font-weight:700;background:#eef2fc"><td>' + g.label + ' 小計</td>' + plCells(termTotal) + '</tr>';
+        g.months.slice().reverse().forEach(function(m) {
+          const total = computePLForMonth(PIPELINE_DATA, allMemberIds, m);
+          html += '<tr id="mh-' + m + '" style="font-weight:600;background:#f9f9f7"><td>' + m + '　（' + MEMBERS.length + '人合計）</td>' + plCells(total) + '</tr>';
+          MEMBERS.forEach(function(mem) {
+            const mp = PIPELINE_DATA.filter(p => p.members && p.members.name === mem.name);
+            const d = computePLForMonth(mp, [mem.id], m);
+            html += '<tr><td style="padding-left:24px;color:#6B7A99">' + (mem.display_name || MEMBER_NAMES[mem.name] || mem.name) + '</td>' + plCells(d) + '</tr>';
+          });
         });
       });
     });
   } else {
     const memberIds = [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
     const myScopedPipeline = filterByMemberName(PIPELINE_DATA, currentMember);
-    groups.forEach(function(g) {
-      const termTotal = computePLForMonths(myScopedPipeline, memberIds, g.months);
-      html += '<tr style="font-weight:700;background:#eef2fc"><td>' + g.label + ' 小計</td>' + plCells(termTotal) + '</tr>';
-      g.months.slice().reverse().forEach(function(m) {
-        const d = computePLForMonth(myScopedPipeline, memberIds, m);
-        html += '<tr id="mh-' + m + '"><td>' + m + '</td>' + plCells(d) + '</tr>';
+    years.forEach(function(y) {
+      const yearMonthsAll = y.terms.flatMap(t => t.months);
+      const yearTotal = computePLForMonths(myScopedPipeline, memberIds, yearMonthsAll);
+      html += '<tr style="font-weight:800;background:#dbe4fa"><td>' + y.yearLabel + '　年間合計</td>' + plCells(yearTotal) + '</tr>';
+      y.terms.slice().reverse().forEach(function(g) {
+        const termTotal = computePLForMonths(myScopedPipeline, memberIds, g.months);
+        html += '<tr style="font-weight:700;background:#eef2fc"><td>' + g.label + ' 小計</td>' + plCells(termTotal) + '</tr>';
+        g.months.slice().reverse().forEach(function(m) {
+          const d = computePLForMonth(myScopedPipeline, memberIds, m);
+          html += '<tr id="mh-' + m + '"><td>' + m + '</td>' + plCells(d) + '</tr>';
+        });
       });
     });
   }
