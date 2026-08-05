@@ -369,44 +369,43 @@ function renderMonthlyHistoryTable(skipAutoScroll) {
   }
 
   let html = '<table class="rev-table"><thead><tr><th>月／担当</th><th>決定ベース売上</th><th>決定ベース粗利</th><th>発生ベース売上</th><th>発生ベース粗利</th></tr></thead><tbody>';
+  html += '<tr><td colspan="5" id="mh-sentinel-top" style="height:1px;padding:0;border:none"></td></tr>';
 
-  if (currentMember === '全員') {
-    const allMemberIds = MEMBERS.map(x => x.id);
+  function renderScope(pipelineScope, memberIdsScope, showMemberBreakdown) {
     years.forEach(function(y) {
-      const yearMonthsAll = y.terms.flatMap(t => t.months);
-      const yearTotal = computePLForMonths(PIPELINE_DATA, allMemberIds, yearMonthsAll);
+      // 年間合計は、読み込み範囲に関わらずその年度の12ヶ月すべてで計算する（常に正しい値にするため）
+      const fullYearMonths = getTermInfo(y.terms[0].months[0]).yearMonths;
+      const yearTotal = computePLForMonths(pipelineScope, memberIdsScope, fullYearMonths);
       html += '<tr style="font-weight:800;background:#dbe4fa"><td>' + y.yearLabel + '　年間合計</td>' + plCells(yearTotal) + '</tr>';
       y.terms.slice().reverse().forEach(function(g) {
-        const termTotal = computePLForMonths(PIPELINE_DATA, allMemberIds, g.months);
+        // 期の小計も、読み込み範囲に関わらずその期の4ヶ月すべてで計算する
+        const fullTermMonths = getTermInfo(g.months[0]).months;
+        const termTotal = computePLForMonths(pipelineScope, memberIdsScope, fullTermMonths);
         html += '<tr style="font-weight:700;background:#eef2fc"><td>' + g.label + ' 小計</td>' + plCells(termTotal) + '</tr>';
         g.months.slice().reverse().forEach(function(m) {
-          const total = computePLForMonth(PIPELINE_DATA, allMemberIds, m);
-          html += '<tr id="mh-' + m + '" style="font-weight:600;background:#f9f9f7"><td>' + m + '　（' + MEMBERS.length + '人合計）</td>' + plCells(total) + '</tr>';
-          MEMBERS.forEach(function(mem) {
-            const mp = PIPELINE_DATA.filter(p => p.members && p.members.name === mem.name);
-            const d = computePLForMonth(mp, [mem.id], m);
-            html += '<tr><td style="padding-left:24px;color:#6B7A99">' + (mem.display_name || MEMBER_NAMES[mem.name] || mem.name) + '</td>' + plCells(d) + '</tr>';
-          });
-        });
-      });
-    });
-  } else {
-    const memberIds = [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
-    const myScopedPipeline = filterByMemberName(PIPELINE_DATA, currentMember);
-    years.forEach(function(y) {
-      const yearMonthsAll = y.terms.flatMap(t => t.months);
-      const yearTotal = computePLForMonths(myScopedPipeline, memberIds, yearMonthsAll);
-      html += '<tr style="font-weight:800;background:#dbe4fa"><td>' + y.yearLabel + '　年間合計</td>' + plCells(yearTotal) + '</tr>';
-      y.terms.slice().reverse().forEach(function(g) {
-        const termTotal = computePLForMonths(myScopedPipeline, memberIds, g.months);
-        html += '<tr style="font-weight:700;background:#eef2fc"><td>' + g.label + ' 小計</td>' + plCells(termTotal) + '</tr>';
-        g.months.slice().reverse().forEach(function(m) {
-          const d = computePLForMonth(myScopedPipeline, memberIds, m);
-          html += '<tr id="mh-' + m + '"><td>' + m + '</td>' + plCells(d) + '</tr>';
+          const total = computePLForMonth(pipelineScope, memberIdsScope, m);
+          if (showMemberBreakdown) {
+            html += '<tr id="mh-' + m + '" style="font-weight:600;background:#f9f9f7"><td>' + m + '　（' + MEMBERS.length + '人合計）</td>' + plCells(total) + '</tr>';
+            MEMBERS.forEach(function(mem) {
+              const mp = PIPELINE_DATA.filter(p => p.members && p.members.name === mem.name);
+              const d = computePLForMonth(mp, [mem.id], m);
+              html += '<tr><td style="padding-left:24px;color:#6B7A99">' + (mem.display_name || MEMBER_NAMES[mem.name] || mem.name) + '</td>' + plCells(d) + '</tr>';
+            });
+          } else {
+            html += '<tr id="mh-' + m + '"><td>' + m + '</td>' + plCells(total) + '</tr>';
+          }
         });
       });
     });
   }
+
+  if (currentMember === '全員') {
+    renderScope(PIPELINE_DATA, MEMBERS.map(x => x.id), true);
+  } else {
+    const memberIds = [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
+    renderScope(filterByMemberName(PIPELINE_DATA, currentMember), memberIds, false);
+  }
+  html += '<tr><td colspan="5" id="mh-sentinel-bottom" style="height:1px;padding:0;border:none"></td></tr>';
   html += '</tbody></table>';
 
   const el = document.getElementById('monthly-history-wrap');
@@ -432,29 +431,39 @@ function loadMoreFuture() {
   renderMonthlyHistoryTable(true);
 }
 
+// IntersectionObserverで、一覧の上端・下端が見えたら自動的に追加読み込みする
+// （scrollイベントの手動判定より確実に動く）
 function initMonthlyHistoryScroll() {
   const wrap = document.getElementById('monthly-history-wrap');
-  if (!wrap || wrap._scrollBound) return;
-  wrap._scrollBound = true;
-  wrap.addEventListener('scroll', function() {
-    if (wrap._expanding) return;
-    if (wrap.scrollTop < 60) {
+  if (!wrap) return;
+  if (wrap._observer) wrap._observer.disconnect();
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting || wrap._expanding) return;
       wrap._expanding = true;
-      const prevHeight = wrap.scrollHeight;
-      const prevScrollTop = wrap.scrollTop;
-      monthlyHistoryRange.to += 3;
-      renderMonthlyHistoryTable(true);
-      requestAnimationFrame(() => {
-        wrap.scrollTop = prevScrollTop + (wrap.scrollHeight - prevHeight);
+      if (entry.target.id === 'mh-sentinel-top') {
+        const prevHeight = wrap.scrollHeight;
+        const prevScrollTop = wrap.scrollTop;
+        monthlyHistoryRange.to += 3;
+        renderMonthlyHistoryTable(true);
+        requestAnimationFrame(() => {
+          wrap.scrollTop = prevScrollTop + (wrap.scrollHeight - prevHeight);
+          wrap._expanding = false;
+        });
+      } else if (entry.target.id === 'mh-sentinel-bottom') {
+        monthlyHistoryRange.from -= 3;
+        renderMonthlyHistoryTable(true);
         wrap._expanding = false;
-      });
-    } else if (wrap.scrollTop + wrap.clientHeight > wrap.scrollHeight - 60) {
-      wrap._expanding = true;
-      monthlyHistoryRange.from -= 3;
-      renderMonthlyHistoryTable(true);
-      wrap._expanding = false;
-    }
-  });
+      }
+    });
+  }, { root: wrap, rootMargin: '80px 0px' });
+
+  const top = document.getElementById('mh-sentinel-top');
+  const bottom = document.getElementById('mh-sentinel-bottom');
+  if (top) observer.observe(top);
+  if (bottom) observer.observe(bottom);
+  wrap._observer = observer;
 }
 
 // 入力の保存など、画面位置を保ったまま再描画したい場合に使う
