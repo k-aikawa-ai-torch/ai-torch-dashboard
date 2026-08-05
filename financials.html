@@ -423,6 +423,15 @@ function renderMonthlyHistoryTable(skipAutoScroll) {
   return '<div class="checklist-scroll-wrap" id="monthly-history-wrap" style="max-height:500px">' + html + '</div>';
 }
 
+function loadMorePast() {
+  monthlyHistoryRange.from -= 3;
+  renderMonthlyHistoryTable(true);
+}
+function loadMoreFuture() {
+  monthlyHistoryRange.to += 3;
+  renderMonthlyHistoryTable(true);
+}
+
 function initMonthlyHistoryScroll() {
   const wrap = document.getElementById('monthly-history-wrap');
   if (!wrap || wrap._scrollBound) return;
@@ -557,6 +566,9 @@ function render() {
   // ===== 月次推移 =====
   html += '<div class="section-block">';
   html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">月次推移</span><span class="sub">2025年2月〜現在</span></div>';
+  html += '<div style="text-align:right;margin-bottom:8px">' +
+    '<button onclick="loadMorePast()" style="padding:0 12px;height:32px;border:1px solid #DEE7F7;border-radius:6px;background:#fff;color:#14213D;cursor:pointer;font-size:12px">△ もっと過去を読み込む</button> ' +
+    '<button onclick="loadMoreFuture()" style="padding:0 12px;height:32px;border:1px solid #DEE7F7;border-radius:6px;background:#fff;color:#14213D;cursor:pointer;font-size:12px">▽ もっと未来を読み込む</button></div>';
   html += renderMonthlyHistoryTable();
   html += '</div>';
 
