@@ -1064,7 +1064,14 @@ function computeMediaMetricsForMonth(source, month, memberIds) {
 // source=nullなら全媒体合算、monthList=nullなら全期間（フィルタなし）
 function computeMediaPeriodStats(source, monthList, memberIds) {
   const inPeriod = function(ym) { return monthList === null || monthList.includes(ym); };
-  const scoutLeadRows = MANUAL_KPI.filter(m => inPeriod(m.year_month) && memberIds.includes(m.member_id) && (source === null || m.source === source));
+  // 合計（source===null）のときだけ、メンバーごとの「返信率の計算から除外する媒体」設定を反映する
+  const scoutLeadRows = MANUAL_KPI.filter(m => {
+    if (!inPeriod(m.year_month) || !memberIds.includes(m.member_id)) return false;
+    if (source !== null) return m.source === source;
+    const mem = MEMBERS.find(x => x.id === m.member_id);
+    const excluded = new Set((mem && mem.reply_rate_excluded_media) || []);
+    return !excluded.has(m.source);
+  });
   const scoutTotal = scoutLeadRows.reduce((s,m)=>s+(m.scout_count||0),0);
   const leadTotal = scoutLeadRows.reduce((s,m)=>s+(m.lead_count||0),0);
   const srcCandidates = CANDIDATE_DATA.filter(c => memberIds.includes(c.member_id) && (source === null || cleanSource(c.source) === source));
