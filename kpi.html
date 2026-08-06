@@ -208,7 +208,7 @@ const SALARY_BANDS = [
 ];
 
 let MEMBERS = [], PIPELINE_DATA = [], PHASE_HISTORY = [], CANDIDATE_DATA = [], TARGETS = [];
-let MANUAL_KPI = [], CUSTOM_METRICS = [], RISK_INPUTS = [], ALL_COMPANIES = [];
+let MANUAL_KPI = [], CUSTOM_METRICS = [], RISK_INPUTS = [], ALL_COMPANIES = [], MEMBER_MONTHLY_MANUAL = [];
 let currentMember = '全員';
 let currentMonth = '';
 let editMode = false;
@@ -281,7 +281,7 @@ async function loadData() {
   allMonths.reverse();
   selectEl.innerHTML = '<option value="">他の月を選択…</option>' + allMonths.map(m => '<option value="' + m.key + '">' + m.label + '</option>').join('');
 
-  const [{ data: members }, { data: candidates }, { data: targets }, pipeline, phaseHistory, { data: manualKpi }, { data: customMetrics }, { data: riskInputs }] = await Promise.all([
+  const [{ data: members }, { data: candidates }, { data: targets }, pipeline, phaseHistory, { data: manualKpi }, { data: customMetrics }, { data: riskInputs }, { data: memberMonthlyManual }] = await Promise.all([
     sb.from('members').select('*'),
     sb.from('candidates').select('*,members(name,display_name)').is('deleted_at', null),
     sb.from('targets').select('*,members(name,display_name)'),
@@ -290,6 +290,7 @@ async function loadData() {
     sb.from('manual_kpi_inputs').select('*'),
     sb.from('custom_metrics').select('*,members(name,display_name)'),
     sb.from('risk_inputs').select('*'),
+    sb.from('member_monthly_manual').select('*'),
   ]);
 
   MEMBERS = members || [];
@@ -300,6 +301,7 @@ async function loadData() {
   MANUAL_KPI = manualKpi || [];
   CUSTOM_METRICS = customMetrics || [];
   RISK_INPUTS = riskInputs || [];
+  MEMBER_MONTHLY_MANUAL = memberMonthlyManual || [];
 
   document.getElementById('header-badge').textContent = currentMonth;
   const me = MEMBERS.find(function(m) { return m.email === CURRENT_USER_EMAIL; });
@@ -392,9 +394,16 @@ function countUniqueByCandidatePhase(pipelineItems, pipelinePhase, candidatePhas
   });
   return ids.size;
 }
-// 推薦（＝求人への提案）件数（延べ）＝パイプラインが「応募承諾」フェーズに到達した件数
+// 応募承諾以降（応募承諾を飛ばして書類選考等から始まるケースも含む）のいずれかのフェーズに
+// 最初に到達したパイプライン件数（延べ）＝「推薦した」とみなす基準
+const RECOMMEND_DEAL_PHASES = ['応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾','入社待ち','入社済み'];
+function countAnyPhaseReachedInMonth(pipelineItems, phases, month) {
+  const map = firstOccurrenceMap(pipelineItems, phases);
+  return Object.values(map).filter(function(d) { return d.substring(0,7) === month; }).length;
+}
+// 推薦（＝求人への提案）件数（延べ）
 function countRecommendsDeal(pipelineItems, month) {
-  return countPhaseReachedInMonth(pipelineItems, '応募承諾', month);
+  return countAnyPhaseReachedInMonth(pipelineItems, RECOMMEND_DEAL_PHASES, month);
 }
 // 選考なう相当フェーズ（候補者の「選考なう」到達日バックフィル・目安算出に使用）
 const SENKOU_NOW_PHASES = ['書類選考','カジュアル面談','一次面接','二次～面接','最終面接'];
@@ -971,41 +980,36 @@ function renderJobCrosstab(candidateItems) {
 }
 
 // ============ 月次一覧（直近6ヶ月）：ファネル・遷移率・リスク ============
+function memberMonthlySum(field, ym, memberIds) {
+  return MEMBER_MONTHLY_MANUAL.filter(function(r) { return r.year_month === ym && memberIds.includes(r.member_id); })
+    .reduce(function(s,r) { return s + (r[field]||0); }, 0);
+}
 function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
   const months = getRecent6Months(currentMonth);
-
-  function rateBetween(m, numPhase, denPhase) {
-    const num = countPhaseReachedInMonth(pipelineItems, numPhase, m);
-    const den = countPhaseReachedInMonth(pipelineItems, denPhase, m);
-    return den ? num/den : null;
-  }
 
   let html = '<div class="section-title">ファネル件数・遷移率・リスク（直近6ヶ月）</div>';
   html += '<div style="overflow-x:auto"><table class="media-table"><thead><tr>' +
     '<th>月</th><th>面談数</th><th>推薦件数（延べ）</th><th>推薦人数</th>' +
-    '<th>書類通過率</th><th>カジュアル面談+一次面接</th><th>一次面接</th>' +
-    '<th>一次⇒最終率</th><th>最終面接</th><th>最終⇒内定率</th><th>内定（延べ）</th>' +
+    '<th>一次面接</th><th>一次⇒最終率</th><th>最終面接</th><th>最終⇒内定率</th><th>内定（延べ）</th>' +
     '<th>内定承諾率</th><th>内定承諾</th><th>入社前辞退数</th><th>早期退職数</th>' +
     '</tr></thead><tbody>';
 
   months.forEach(function(m) {
     const interviews = candidateItems.filter(function(c){return (c.registered_at||'').substring(0,7)===m;}).length;
-    const recDeal = countRecommendsDeal(pipelineItems, m);
-    const recUnique = countRecommendsUnique(candidateItems, m);
-    const casualOrFirstM = countUniqueReachedAnyPhase(pipelineItems, ['カジュアル面談','一次面接'], m);
-    const docPassRate = recUnique ? casualOrFirstM/recUnique : null;
-    const firstI = countPhaseReachedInMonth(pipelineItems, '一次面接', m);
-    const finalI = countPhaseReachedInMonth(pipelineItems, '最終面接', m);
-    const offerCount = countPhaseReachedInMonth(pipelineItems, '内定', m);
+    const recDeal = m < SYSTEM_START_MONTH ? memberMonthlySum('recommend_deal', m, memberIds) : countRecommendsDeal(pipelineItems, m);
+    const recUnique = recommendCountForMonth(null, m, memberIds, candidateItems);
+    const firstI = m < SYSTEM_START_MONTH ? memberMonthlySum('first_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '一次面接', m);
+    const finalI = m < SYSTEM_START_MONTH ? memberMonthlySum('final_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '最終面接', m);
+    const offerCount = m < SYSTEM_START_MONTH ? memberMonthlySum('offer_deal_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '内定', m);
     const acceptCount = countPhaseReachedInMonth(pipelineItems, '内定承諾', m);
     const withdrawal = memberIds.reduce(function(s,mid){ const r=RISK_INPUTS.find(function(x){return x.member_id===mid&&x.year_month===m;}); return s+((r&&r.withdrawal_count)||0); },0);
     const earlyLeave = memberIds.reduce(function(s,mid){ const r=RISK_INPUTS.find(function(x){return x.member_id===mid&&x.year_month===m;}); return s+((r&&r.early_leave_count)||0); },0);
 
     html += '<tr><td>' + m + '</td><td>' + interviews + '</td><td>' + recDeal + '</td><td>' + recUnique + '</td>' +
-      '<td>' + fmtPct(docPassRate) + '</td><td>' + casualOrFirstM + '</td><td>' + firstI + '</td>' +
-      '<td>' + fmtPct(rateBetween(m, '最終面接', '一次面接')) + '</td><td>' + finalI + '</td>' +
-      '<td>' + fmtPct(rateBetween(m, '内定', '最終面接')) + '</td><td>' + offerCount + '</td>' +
-      '<td>' + fmtPct(rateBetween(m, '内定承諾', '内定')) + '</td><td>' + acceptCount + '</td>' +
+      '<td>' + firstI + '</td>' +
+      '<td>' + fmtPct(firstI ? finalI/firstI : null) + '</td><td>' + finalI + '</td>' +
+      '<td>' + fmtPct(finalI ? offerCount/finalI : null) + '</td><td>' + offerCount + '</td>' +
+      '<td>' + fmtPct(offerCount ? acceptCount/offerCount : null) + '</td><td>' + acceptCount + '</td>' +
       '<td>' + withdrawal + '</td><td>' + earlyLeave + '</td></tr>';
   });
   html += '</tbody></table></div>';
