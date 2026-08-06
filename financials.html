@@ -125,6 +125,8 @@ let checklistSortDir = -1;
 let checklistFilter = 'all';
 let checklistMemberFilter = '';
 let otherRevSortKey = 'date';
+let otherRevCategoryFilter = '';
+let otherRevMemberFilter = '';
 let otherRevSortDir = -1;
 let CURRENT_USER_EMAIL = null;
 let ME = null;
@@ -294,6 +296,8 @@ function sumOtherRevenueForMonths(memberIds, monthList) {
   return { revenue, profit: revenue };
 }
 
+function setOtherRevCategoryFilter(v) { otherRevCategoryFilter = v; renderKeepScroll(); }
+function setOtherRevMemberFilter(v) { otherRevMemberFilter = v; renderKeepScroll(); }
 function setOtherRevSort(key) {
   if (otherRevSortKey === key) { otherRevSortDir *= -1; } else { otherRevSortKey = key; otherRevSortDir = 1; }
   render();
@@ -490,6 +494,7 @@ function render() {
   // ===== 事務処理チェックリスト =====
   html += '<div class="section-block">';
   html += '<div class="sec-header"><span class="bar" style="background:#e24b4a"></span><span class="title">事務処理チェックリスト</span><span class="sub">内定承諾以降の案件</span></div>';
+  html += '<div style="font-size:11px;color:#9aa3b8;margin-bottom:8px">入社前辞退・早期退職が発生した場合は、対象案件の「出金日（辞退・早期退職）」列に日付を入力してください（「辞退登録」ボタンから日付を選べます）。その月の売上・粗利からマイナス計上されます。</div>';
   html += '<div class="tag-filters">' +
     [['all','すべて表示'],['contract_pending','成約報告がまだ'],['hire_pending','入社がまだ'],['post_hire_pending','入社後フォロー等がまだ'],['payment_pending','入金確認がまだ'],['completed','すべて終わったもの']]
       .map(([k,l]) => '<span class="tag' + (checklistFilter===k?' on':'') + '" onclick="setChecklistFilter(\''+k+'\')">'+l+'</span>').join('') +
@@ -516,9 +521,22 @@ function render() {
 
 function renderOtherRevenueTable(memberIds) {
   let rows = OTHER_REVENUE.filter(r => currentMember === '全員' || memberIds.includes(r.member_id));
-  if (!rows.length) return '<div style="color:#9aa3b8;font-size:12px">まだ登録がありません</div>';
-
   const CATEGORY_OPTS = ['採用コンサル・リテーナー・RPOなど','BW','顧問','その他'];
+  if (otherRevCategoryFilter) rows = rows.filter(r => r.category === otherRevCategoryFilter);
+  if (currentMember === '全員' && otherRevMemberFilter) rows = rows.filter(r => r.member_id === otherRevMemberFilter);
+
+  let filterHtml = '<div class="tag-filters">' +
+    '<span class="tag' + (otherRevCategoryFilter===''?' on':'') + '" onclick="setOtherRevCategoryFilter(\'\')">すべて表示</span>' +
+    CATEGORY_OPTS.map(c => '<span class="tag' + (otherRevCategoryFilter===c?' on':'') + '" onclick="setOtherRevCategoryFilter(\'' + c + '\')">' + c + '</span>').join('') +
+    '</div>';
+  if (currentMember === '全員') {
+    filterHtml += '<div class="form-row" style="margin-bottom:10px"><div class="form-group"><label>担当で絞る</label><select onchange="setOtherRevMemberFilter(this.value)">' +
+      '<option value=""' + (otherRevMemberFilter===''?' selected':'') + '>全員</option>' +
+      MEMBERS.map(m => '<option value="'+m.id+'"'+(otherRevMemberFilter===m.id?' selected':'')+'>'+(m.display_name||MEMBER_NAMES[m.name])+'</option>').join('') +
+      '</select></div></div>';
+  }
+
+  if (!rows.length) return filterHtml + '<div style="color:#9aa3b8;font-size:12px">該当する売上がありません</div>';
 
   function cmp(a, b) {
     if (otherRevSortKey === 'date') return (a.revenue_date||'').localeCompare(b.revenue_date||'');
@@ -535,7 +553,7 @@ function renderOtherRevenueTable(memberIds) {
     return '<th class="sort-th" onclick="setOtherRevSort(\'' + key + '\')">' + label +
       '<span class="sort-arrow' + (active ? ' active' : '') + '">' + (active ? (otherRevSortDir===1?'▲':'▼') : '↕') + '</span></th>';
   }
-  let html = '<table class="rev-table"><thead><tr>' +
+  let html = filterHtml + '<table class="rev-table"><thead><tr>' +
     th('date','日付') + th('member','担当') + th('category','事業カテゴリ') + th('amount','金額') + th('desc','内容') + '<th></th>' +
     '</tr></thead><tbody>';
   rows.forEach(r => {
@@ -661,7 +679,7 @@ function renderChecklist(pipelineItems) {
     '<col style="width:150px"><col style="width:60px"></colgroup>' +
     '<thead><tr>' +
     th('candidate','候補者') + th('company','企業') + th('member','担当') + th('source','流入経路') + th('accept_date','内定承諾日') + th('hire_date','入社日') +
-    th('theoretical_salary','理論年収') + th('cost','原価') + th('profit','粗利') + th('revenue','売上金額') + th('payment_date','入金日') + th('refund_date','出金日');
+    th('theoretical_salary','理論年収') + th('cost','原価') + th('profit','粗利') + th('revenue','売上金額') + th('payment_date','入金日') + th('refund_date','出金日（辞退・早期退職）');
   CHECKLIST_ITEMS.forEach(it => { html += '<th>' + it.label + '</th>'; });
   html += '<th>備考</th><th></th></tr></thead><tbody>';
 
@@ -684,7 +702,8 @@ function renderChecklist(pipelineItems) {
     html += '<td style="color:#1baf7a;font-weight:500">' + (grossProfit != null ? fmtSalary(grossProfit) : '-') + '</td>';
     html += '<td style="color:#6B7A99">' + fmtSalary(revenueForecast) + '</td>';
     html += '<td><input type="date" class="hire-date-input" data-cell="' + p.id + ':payment_date" value="' + (p.payment_date||'') + '" onchange="saveField(\'' + p.id + '\',\'payment_date\',this.value||null)"></td>';
-    html += '<td><input type="date" class="hire-date-input" data-cell="' + p.id + ':refund_date" value="' + (p.refund_date||'') + '" onchange="saveField(\'' + p.id + '\',\'refund_date\',this.value||null)"></td>';
+    html += '<td><div style="display:flex;gap:4px;align-items:center"><input type="date" class="hire-date-input" data-cell="' + p.id + ':refund_date" value="' + (p.refund_date||'') + '" onchange="saveField(\'' + p.id + '\',\'refund_date\',this.value||null)">' +
+      (p.refund_date ? '' : '<button class="icon-btn" title="入社前辞退・早期退職として記録する" onclick="promptRefundDate(\'' + p.id + '\')" style="font-size:11px;color:#b3261e">辞退登録</button>') + '</div></td>';
 
     CHECKLIST_ITEMS.forEach(it => {
       let dueDate = null;
@@ -704,6 +723,13 @@ function renderChecklist(pipelineItems) {
   });
   html += '</tbody></table></div>';
   return html;
+}
+
+function promptRefundDate(pipelineId) {
+  const el = document.querySelector('[data-cell="' + pipelineId + ':refund_date"]');
+  if (!el) return;
+  el.focus();
+  if (el.showPicker) { try { el.showPicker(); } catch (e) {} }
 }
 
 async function saveField(pipelineId, key, value) {

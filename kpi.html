@@ -276,7 +276,7 @@ async function loadData() {
     sb.from('members').select('*'),
     sb.from('candidates').select('*,members(name,display_name)').is('deleted_at', null),
     sb.from('targets').select('*,members(name,display_name)'),
-    fetchAllRange('pipeline', '*, members(name,display_name), candidates(source,desired_salary,job_type,registered_at,top_priority_axis,phase), companies(name,score_salary,score_autonomy,score_tech,score_wlb,score_culture,score_brand,score_social)'),
+    fetchAllRange('pipeline', '*, members(name,display_name), candidates(name,source,desired_salary,job_type,registered_at,top_priority_axis,phase), companies(name,score_salary,score_autonomy,score_tech,score_wlb,score_culture,score_brand,score_social)'),
     fetchAllRange('pipeline_phase_history', '*'),
     sb.from('manual_kpi_inputs').select('*'),
     sb.from('custom_metrics').select('*,members(name,display_name)'),
@@ -826,14 +826,28 @@ function renderCompanyAnalysis(pipelineItems, month) {
     const final = countPhaseReachedInMonth(ps, '最終面接', month);
     const off = countPhaseReachedInMonth(ps, '内定', month);
     const acc = countPhaseReachedInMonth(ps, '内定承諾', month);
-    html += '<tr><td>' + name + '</td><td>' + rec + '</td><td>' + fmtPct(rec ? first/rec : null) + '</td>' +
+    const rowKey = 'company-cands-' + name.replace(/[^a-zA-Z0-9ぁ-んァ-ヶ一-龠]/g, '');
+    html += '<tr><td onclick="toggleCompanyCandidates(\'' + rowKey + '\')" style="cursor:pointer;color:#0D40D9">' + name + ' <span style="font-size:10px;color:#9aa3b8">（候補者一覧▾）</span></td><td>' + rec + '</td><td>' + fmtPct(rec ? first/rec : null) + '</td>' +
       '<td>' + first + '</td><td>' + fmtPct(first ? final/first : null) + '</td>' +
       '<td>' + final + '</td><td>' + fmtPct(final ? off/final : null) + '</td>' +
       '<td>' + off + '</td><td>' + fmtPct(off ? acc/off : null) + '</td>' +
       '<td>' + acc + '</td></tr>';
+    html += '<tr id="' + rowKey + '" style="display:none"><td colspan="10" style="background:#fafbfe;padding:10px 16px">' +
+      '<table style="width:100%;font-size:12px"><thead><tr><th style="text-align:left;padding:4px">候補者</th><th style="text-align:left;padding:4px">求人名</th><th style="text-align:left;padding:4px">フェーズ</th><th style="text-align:left;padding:4px">ステータス</th></tr></thead><tbody>' +
+      ps.slice().sort((a,b) => (b.created_at||'').localeCompare(a.created_at||'')).map(function(p) {
+        const candName = p.candidates?.name || '（候補者未設定）';
+        const link = p.candidate_id ? '<a href="candidates.html?id=' + p.candidate_id + '" target="_blank" style="color:#0D40D9;text-decoration:none">' + candName + '</a>' : candName;
+        return '<tr><td style="padding:4px">' + link + '</td><td style="padding:4px;color:#6B7A99">' + (p.job_name||'-') + '</td><td style="padding:4px">' + (p.phase||'-') + '</td><td style="padding:4px;color:#6B7A99">' + (p.status||'-') + '</td></tr>';
+      }).join('') +
+      '</tbody></table></td></tr>';
   });
   html += '</tbody></table></div>';
   return html;
+}
+
+function toggleCompanyCandidates(rowKey) {
+  const el = document.getElementById(rowKey);
+  if (el) el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
 }
 
 // ============ 転職軸マッチ度分析 ============
@@ -1017,6 +1031,7 @@ function renderMediaTable() {
     '<th>媒体</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>面談数</th><th>面談→推薦率</th>' +
     '<th>求人提案数</th><th>推薦人数</th><th>推薦→内定率</th><th>内定数</th><th>内定→承諾率</th><th>承諾数</th>' +
     '</tr></thead><tbody>';
+  const totals = { scoutTotal:0, leadTotal:0, interviews:0, recDeal:0, recUnique:0, offers:0, accepts:0 };
   SOURCE_LIST.forEach(function(source) {
     const scoutTotal = MANUAL_KPI.filter(m => m.year_month===currentMonth && m.source===source && memberIds.includes(m.member_id)).reduce((s,m)=>s+(m.scout_count||0),0);
     const leadTotal = MANUAL_KPI.filter(m => m.year_month===currentMonth && m.source===source && memberIds.includes(m.member_id)).reduce((s,m)=>s+(m.lead_count||0),0);
@@ -1030,6 +1045,9 @@ function renderMediaTable() {
     const recUnique = countRecommendsUnique(srcPipeline, currentMonth);
     const offers = countPhaseReachedInMonth(srcPipeline, '内定', currentMonth);
     const accepts = countPhaseReachedInMonth(srcPipeline, '内定承諾', currentMonth);
+
+    totals.scoutTotal += scoutTotal; totals.leadTotal += leadTotal; totals.interviews += interviews;
+    totals.recDeal += recDeal; totals.recUnique += recUnique; totals.offers += offers; totals.accepts += accepts;
 
     const interviewToRecRate = interviews ? recUnique/interviews : null;
     const recToOfferRate = recUnique ? offers/recUnique : null;
@@ -1056,6 +1074,15 @@ function renderMediaTable() {
     html += '<td>' + accepts + '</td>';
     html += '</tr>';
   });
+  const totalReplyRate = totals.scoutTotal ? totals.leadTotal/totals.scoutTotal : null;
+  const totalInterviewToRecRate = totals.interviews ? totals.recUnique/totals.interviews : null;
+  const totalRecToOfferRate = totals.recUnique ? totals.offers/totals.recUnique : null;
+  const totalOfferToAcceptRate = totals.offers ? totals.accepts/totals.offers : null;
+  html += '<tr style="font-weight:700;background:#f4f4f0">' +
+    '<td>合計</td><td>' + totals.scoutTotal + '</td><td>' + totals.leadTotal + '</td><td>' + fmtPct(totalReplyRate) + '</td>' +
+    '<td>' + totals.interviews + '</td><td>' + fmtPct(totalInterviewToRecRate) + '</td>' +
+    '<td>' + totals.recDeal + '</td><td>' + totals.recUnique + '</td><td>' + fmtPct(totalRecToOfferRate) + '</td>' +
+    '<td>' + totals.offers + '</td><td>' + fmtPct(totalOfferToAcceptRate) + '</td><td>' + totals.accepts + '</td></tr>';
   html += '</tbody></table></div>';
   return html;
 }
