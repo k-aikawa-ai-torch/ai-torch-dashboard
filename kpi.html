@@ -617,7 +617,7 @@ function render() {
 
   // ===== 月次一覧（ファネル・遷移率・リスク、直近6ヶ月） =====
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">月次一覧（ファネル・遷移率・リスク）</span><span class="sub">直近6ヶ月（' + getRecent6Months(currentMonth)[0] + '〜' + currentMonth + '）</span></div>';
+  html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">月次一覧（ファネル・遷移率・リスク）</span><span class="sub">全期間（枠内スクロール・初期表示は直近6ヶ月分）</span></div>';
   html += renderMonthlyFunnelTables(myPipeline, myCandidates, memberIds);
   html += '</div>';
 
@@ -951,47 +951,46 @@ function getSalaryBand(salary) {
   return SALARY_BANDS.find(function(b) { return salary >= b.min && salary < b.max; });
 }
 function inMonthList(ym, monthList) { return monthList === null || monthList.includes(ym); }
-function renderSalaryCrosstabForPeriod(candidateItems, monthList) {
-  let html = '<div class="monthly-scroll-wrap" style="max-height:280px"><table class="media-table"><thead><tr><th>媒体</th>' + SALARY_BANDS.map(function(b){return '<th>'+b.label+'</th>';}).join('') + '</tr></thead><tbody>';
-  SOURCE_LIST.forEach(function(source) {
-    const cands = candidateItems.filter(function(c) { return cleanSource(c.source) === source && inMonthList((c.registered_at||'').substring(0,7), monthList); });
-    html += '<tr><td>' + source + '</td>';
-    SALARY_BANDS.forEach(function(b) {
-      const cnt = cands.filter(function(c) { const band = getSalaryBand(c.desired_salary); return band && band.label === b.label; }).length;
-      html += '<td>' + (cnt || '-') + '</td>';
-    });
-    html += '</tr>';
-  });
-  html += '</tbody></table></div>';
-  return html;
-}
-function renderJobCrosstabForPeriod(candidateItems, monthList) {
-  let html = '<div class="monthly-scroll-wrap" style="max-height:280px"><table class="media-table"><thead><tr><th>媒体</th>' + JOB_TYPE_LIST.map(function(j){return '<th>'+j+'</th>';}).join('') + '</tr></thead><tbody>';
-  SOURCE_LIST.forEach(function(source) {
-    const cands = candidateItems.filter(function(c) { return cleanSource(c.source) === source && inMonthList((c.registered_at||'').substring(0,7), monthList); });
-    html += '<tr><td>' + source + '</td>';
-    JOB_TYPE_LIST.forEach(function(job) {
-      const cnt = cands.filter(function(c) { return (c.job_type||'').split(/[,、]/).map(function(s){return s.trim();}).includes(job); }).length;
-      html += '<td>' + (cnt || '-') + '</td>';
-    });
-    html += '</tr>';
-  });
-  html += '</tbody></table></div>';
-  return html;
-}
-// 直近4ヶ月・全期間を並べて表示する共通ラッパー
-function renderCrosstabWithPeriods(candidateItems, renderFn) {
+// 媒体×カテゴリのクロス集計を「当月媒体別遷移率サマリー」と同じ、カテゴリごとに直近4ヶ月／全期間を並べた1つの表にする
+function renderCrosstabGrouped(candidateItems, categories, matchFn) {
   const recentMonths = getRecentNMonths(currentMonth, 4);
-  let html = '<div style="overflow-x:auto">';
-  html += '<div style="font-size:12px;color:#6B7A99;margin-bottom:4px;font-weight:500">直近4ヶ月（' + recentMonths[0] + '〜' + recentMonths[recentMonths.length-1] + '）</div>';
-  html += renderFn(candidateItems, recentMonths);
-  html += '<div style="font-size:12px;color:#6B7A99;margin:14px 0 4px;font-weight:500">全期間</div>';
-  html += renderFn(candidateItems, null);
-  html += '</div>';
+  const periods = [
+    { label: '直近4ヶ月', list: recentMonths },
+    { label: '全期間', list: null },
+  ];
+  let html = '<div class="monthly-scroll-wrap" style="max-height:360px"><table class="media-table"><thead><tr><th rowspan="2">媒体</th>';
+  categories.forEach(function(cat) { html += '<th colspan="' + periods.length + '" style="text-align:center">' + cat + '</th>'; });
+  html += '</tr><tr>';
+  categories.forEach(function() {
+    periods.forEach(function(p) { html += '<th style="font-size:11px;font-weight:400;white-space:nowrap">' + p.label + '</th>'; });
+  });
+  html += '</tr></thead><tbody>';
+  SOURCE_LIST.forEach(function(source) {
+    html += '<tr><td>' + source + '</td>';
+    categories.forEach(function(cat) {
+      periods.forEach(function(p) {
+        const cnt = candidateItems.filter(function(c) {
+          return cleanSource(c.source) === source && inMonthList((c.registered_at||'').substring(0,7), p.list) && matchFn(c, cat);
+        }).length;
+        html += '<td>' + (cnt || '-') + '</td>';
+      });
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
   return html;
 }
-function renderSalaryCrosstab(candidateItems) { return renderCrosstabWithPeriods(candidateItems, renderSalaryCrosstabForPeriod); }
-function renderJobCrosstab(candidateItems) { return renderCrosstabWithPeriods(candidateItems, renderJobCrosstabForPeriod); }
+function renderSalaryCrosstab(candidateItems) {
+  return renderCrosstabGrouped(candidateItems, SALARY_BANDS.map(function(b){return b.label;}), function(c, label) {
+    const band = getSalaryBand(c.desired_salary);
+    return band && band.label === label;
+  });
+}
+function renderJobCrosstab(candidateItems) {
+  return renderCrosstabGrouped(candidateItems, JOB_TYPE_LIST, function(c, job) {
+    return (c.job_type||'').split(/[,、]/).map(function(s){return s.trim();}).includes(job);
+  });
+}
 
 // ============ 月次一覧（直近6ヶ月）：ファネル・遷移率・リスク ============
 function memberMonthlySum(field, ym, memberIds) {
@@ -999,9 +998,9 @@ function memberMonthlySum(field, ym, memberIds) {
     .reduce(function(s,r) { return s + (r[field]||0); }, 0);
 }
 function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
-  const months = getRecent6Months(currentMonth);
+  const months = allMonthsInRange(DATA_START_MONTH, currentMonth).slice().reverse(); // 新しい月が上・全期間（枠内スクロールで初期表示は直近6ヶ月分の高さ）
 
-  let html = '<div class="section-title">ファネル件数・遷移率・リスク（直近6ヶ月）</div>';
+  let html = '<div class="section-title">ファネル件数・遷移率・リスク（全期間）</div>';
   html += '<div class="monthly-scroll-wrap" style="max-height:280px"><table class="media-table"><thead><tr>' +
     '<th>月</th><th>面談数</th><th>推薦件数（延べ）</th><th>推薦人数</th>' +
     '<th>一次面接</th><th>一次⇒最終率</th><th>最終面接</th><th>最終⇒内定率</th><th>内定（延べ）</th>' +
