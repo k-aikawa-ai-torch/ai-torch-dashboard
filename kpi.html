@@ -45,6 +45,15 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 .media-table td:first-child{text-align:left;font-weight:500;cursor:pointer;color:#0D40D9;position:sticky;left:0;z-index:2;background:#fff}
 .media-table td:first-child:hover{text-decoration:underline}
 .media-table tr:last-child td{border-bottom:none}
+.monthly-scroll-wrap{overflow:auto;max-height:380px;border-radius:10px;border:1px solid #DEE7F7}
+.monthly-scroll-wrap .media-table{border:none}
+.monthly-scroll-wrap .media-table th{position:sticky;top:0;z-index:5}
+.monthly-scroll-wrap .media-table th:first-child{z-index:6}
+.media-summary-table{width:100%;border-collapse:collapse;background:#fbfbf9;font-size:12.5px;margin-bottom:8px}
+.media-summary-table th{background:#f0f0eb;font-size:11px;font-weight:500;color:#6B7A99;padding:6px 10px;text-align:center;white-space:nowrap}
+.media-summary-table th:first-child{text-align:left}
+.media-summary-table td{padding:7px 10px;text-align:center;border-bottom:1px solid #f0f0eb}
+.media-summary-table td:first-child{text-align:left;font-weight:600}
 .edit-toggle-btn{padding:6px 14px;font-size:12px;border:1px solid #DEE7F7;border-radius:8px;background:#fff;cursor:pointer;color:#14213D}
 .tag-filters{display:flex;flex-wrap:wrap;gap:6px}
 .tag{padding:5px 12px;border:1px solid #DEE7F7;border-radius:20px;font-size:12px;cursor:pointer;background:#fff;color:#6B7A99;white-space:nowrap;transition:all 0.15s;user-select:none}
@@ -1005,22 +1014,59 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
 }
 
 // ============ 月次一覧（直近6ヶ月）：媒体別（縦軸=月、横軸=指標） ============
+// 集計値（件数はSUM、率は分子分母を積み上げてから再計算）をまとめて返す
+function aggregateMediaMetrics(source, months, memberIds) {
+  const agg = { scoutTotal:0, leadTotal:0, interviews:0, recUnique:0, offers:0, accepts:0 };
+  months.forEach(function(m) {
+    const d = computeMediaMetricsForMonth(source, m, memberIds);
+    agg.scoutTotal += d.scoutTotal; agg.leadTotal += d.leadTotal; agg.interviews += d.interviews;
+    agg.recUnique += d.recUnique; agg.offers += d.offers; agg.accepts += d.accepts;
+  });
+  return {
+    scoutTotal: agg.scoutTotal, leadTotal: agg.leadTotal, interviews: agg.interviews,
+    recUnique: agg.recUnique, offers: agg.offers, accepts: agg.accepts,
+    replyRate: agg.scoutTotal ? agg.leadTotal/agg.scoutTotal : null,
+    interviewToRecRate: agg.interviews ? agg.recUnique/agg.interviews : null,
+    recToOfferRate: agg.recUnique ? agg.offers/agg.recUnique : null,
+    offerToAcceptRate: agg.offers ? agg.accepts/agg.offers : null,
+    interviewToAcceptRate: agg.interviews ? agg.accepts/agg.interviews : null,
+  };
+}
+function mediaMetricsRowHtml(label, d) {
+  return '<tr><td>' + label + '</td><td>' + d.scoutTotal + '</td><td>' + d.leadTotal + '</td><td>' + fmtPct(d.replyRate) + '</td>' +
+    '<td>' + d.interviews + '</td><td>' + fmtPct(d.interviewToRecRate) + '</td>' +
+    '<td>' + d.recUnique + '</td><td>' + fmtPct(d.recToOfferRate) + '</td>' +
+    '<td>' + d.offers + '</td><td>' + fmtPct(d.offerToAcceptRate) + '</td>' +
+    '<td>' + d.accepts + '</td><td>' + fmtPct(d.interviewToAcceptRate) + '</td></tr>';
+}
 function renderMonthlyMediaTables(memberIds) {
-  const months = getRecent6Months(currentMonth);
+  const months = allMonthsInRange(DATA_START_MONTH, currentMonth); // 全期間・古い月から新しい月の順
+  // 4ヶ月ごとのブロックに分割（データ開始月起点）
+  const blocks = [];
+  for (let i = 0; i < months.length; i += 4) {
+    blocks.push(months.slice(i, i+4));
+  }
   let html = '';
   SOURCE_LIST.forEach(function(source) {
     html += '<div style="font-size:12px;color:#6B7A99;margin:14px 0 4px;font-weight:500">' + source + '</div>';
-    html += '<div style="overflow-x:auto"><table class="media-table"><thead><tr>' +
+    // ---- サマリー（全期間・4ヶ月ブロックごと） ----
+    html += '<table class="media-summary-table"><thead><tr>' +
+      '<th>期間</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>面談数</th><th>面談→推薦率</th>' +
+      '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>面談→承諾率</th>' +
+      '</tr></thead><tbody>';
+    html += mediaMetricsRowHtml('全期間（' + months[0] + '〜' + months[months.length-1] + '）', aggregateMediaMetrics(source, months, memberIds));
+    blocks.forEach(function(b) {
+      const label = b.length > 1 ? (b[0] + '〜' + b[b.length-1]) : b[0];
+      html += mediaMetricsRowHtml(label, aggregateMediaMetrics(source, b, memberIds));
+    });
+    html += '</tbody></table>';
+    // ---- 月別詳細（枠内スクロール・先頭行/列固定） ----
+    html += '<div class="monthly-scroll-wrap"><table class="media-table"><thead><tr>' +
       '<th>月</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>面談数</th><th>面談→推薦率</th>' +
-      '<th>推薦人数</th><th>推薦→内定率</th><th>内定数</th><th>内定→承諾率</th><th>承諾数</th><th>面談→承諾率</th>' +
+      '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>面談→承諾率</th>' +
       '</tr></thead><tbody>';
     months.forEach(function(m) {
-      const d = computeMediaMetricsForMonth(source, m, memberIds);
-      html += '<tr><td>' + m + '</td><td>' + d.scoutTotal + '</td><td>' + d.leadTotal + '</td><td>' + fmtPct(d.replyRate) + '</td>' +
-        '<td>' + d.interviews + '</td><td>' + fmtPct(d.interviewToRecRate) + '</td>' +
-        '<td>' + d.recUnique + '</td><td>' + fmtPct(d.recToOfferRate) + '</td>' +
-        '<td>' + d.offers + '</td><td>' + fmtPct(d.offerToAcceptRate) + '</td>' +
-        '<td>' + d.accepts + '</td><td>' + fmtPct(d.interviewToAcceptRate) + '</td></tr>';
+      html += mediaMetricsRowHtml(m, computeMediaMetricsForMonth(source, m, memberIds));
     });
     html += '</tbody></table></div>';
   });
@@ -1049,8 +1095,8 @@ function computeMediaMetricsForMonth(source, month, memberIds) {
   const interviews = srcCandidates.filter(c => (c.registered_at||'').substring(0,7) === month).length;
   const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
   const recUnique = recommendCountForMonth(source, month, memberIds, srcCandidates);
-  const offers = offerCountForMonth(source, month, memberIds, srcPipeline);
-  const accepts = countPhaseReachedInMonth(srcPipeline, '内定承諾', month);
+  const offers = offerUniqueCountForMonth(source, month, memberIds, srcPipeline);
+  const accepts = acceptUniqueCountForMonth(source, month, memberIds, srcPipeline);
   return {
     scoutTotal, leadTotal, interviews, recUnique, offers, accepts,
     replyRate: scoutTotal ? leadTotal/scoutTotal : null,
@@ -1078,12 +1124,10 @@ function computeMediaPeriodStats(source, monthList, memberIds) {
   const srcCandidateIds = new Set(srcCandidates.map(c => c.id));
   const interviews = srcCandidates.filter(c => inPeriod((c.registered_at||'').substring(0,7))).length;
   const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
-  const recUnique = (monthList === null ? allMonthsInRange(DATA_START_MONTH, currentMonth) : monthList)
-    .reduce((s,ym) => s + recommendCountForMonth(source, ym, memberIds, srcCandidates), 0);
-  const offers = (monthList === null ? allMonthsInRange(DATA_START_MONTH, currentMonth) : monthList)
-    .reduce((s,ym) => s + offerCountForMonth(source, ym, memberIds, srcPipeline), 0);
-  const acceptMap = firstOccurrenceMap(srcPipeline, ['内定承諾']);
-  const accepts = Object.values(acceptMap).filter(d => inPeriod(d.substring(0,7))).length;
+  const months = monthList === null ? allMonthsInRange(DATA_START_MONTH, currentMonth) : monthList;
+  const recUnique = months.reduce((s,ym) => s + recommendCountForMonth(source, ym, memberIds, srcCandidates), 0);
+  const offers = months.reduce((s,ym) => s + offerUniqueCountForMonth(source, ym, memberIds, srcPipeline), 0);
+  const accepts = months.reduce((s,ym) => s + acceptUniqueCountForMonth(source, ym, memberIds, srcPipeline), 0);
   return {
     replyRate: scoutTotal ? leadTotal/scoutTotal : null,
     interviewToRecRate: interviews ? recUnique/interviews : null,
@@ -1144,6 +1188,22 @@ function offerCountForMonth(source, ym, memberIds, srcPipeline) {
   }
   return countPhaseReachedInMonth(srcPipeline, '内定', ym);
 }
+// 内定人数（ユニーク・媒体別遷移率サマリー専用）
+function offerUniqueCountForMonth(source, ym, memberIds, srcPipeline) {
+  if (ym < SYSTEM_START_MONTH) {
+    return MANUAL_KPI.filter(m => m.year_month === ym && memberIds.includes(m.member_id) && (source === null || m.source === source))
+      .reduce((s,m) => s + (m.offer_unique_count||0), 0);
+  }
+  return countUniquePhaseReachedInMonth(srcPipeline, '内定', ym);
+}
+// 承諾人数（決定人数・ユニーク・媒体別遷移率サマリー専用）
+function acceptUniqueCountForMonth(source, ym, memberIds, srcPipeline) {
+  if (ym < SYSTEM_START_MONTH) {
+    return MANUAL_KPI.filter(m => m.year_month === ym && memberIds.includes(m.member_id) && (source === null || m.source === source))
+      .reduce((s,m) => s + (m.accept_unique_count||0), 0);
+  }
+  return countUniquePhaseReachedInMonth(srcPipeline, '内定承諾', ym);
+}
 function allMonthsInRange(startYM, endYM) {
   const [sy,sm] = startYM.split('-').map(Number);
   const [ey,em] = endYM.split('-').map(Number);
@@ -1161,7 +1221,7 @@ function renderMediaTable() {
   const memberIds = currentMember === '全員' ? MEMBERS.map(m => m.id) : [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
   let html = '<div style="overflow-x:auto"><table class="media-table"><thead><tr>' +
     '<th>媒体</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>面談数</th><th>面談→推薦率</th>' +
-    '<th>推薦人数</th><th>推薦→内定率</th><th>内定数</th><th>内定→承諾率</th><th>承諾数</th>' +
+    '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th>' +
     '</tr></thead><tbody>';
   const totals = { scoutTotal:0, leadTotal:0, interviews:0, recUnique:0, offers:0, accepts:0 };
   SOURCE_LIST.forEach(function(source) {
@@ -1174,8 +1234,8 @@ function renderMediaTable() {
     const interviews = srcCandidates.filter(c => (c.registered_at||'').substring(0,7) === currentMonth).length;
     const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
     const recUnique = recommendCountForMonth(source, currentMonth, memberIds, srcCandidates);
-    const offers = offerCountForMonth(source, currentMonth, memberIds, srcPipeline);
-    const accepts = countPhaseReachedInMonth(srcPipeline, '内定承諾', currentMonth);
+    const offers = offerUniqueCountForMonth(source, currentMonth, memberIds, srcPipeline);
+    const accepts = acceptUniqueCountForMonth(source, currentMonth, memberIds, srcPipeline);
 
     totals.scoutTotal += scoutTotal; totals.leadTotal += leadTotal; totals.interviews += interviews;
     totals.recUnique += recUnique; totals.offers += offers; totals.accepts += accepts;
