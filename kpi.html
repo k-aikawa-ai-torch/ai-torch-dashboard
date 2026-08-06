@@ -719,9 +719,12 @@ async function saveRiskInput(memberId) {
 
 // ============ 直近6ヶ月・目標値・リードタイム ============
 function getRecent6Months(endMonth) {
+  return getRecentNMonths(endMonth, 6);
+}
+function getRecentNMonths(endMonth, n) {
   const [y, m] = endMonth.split('-').map(Number);
   const arr = [];
-  for (let i = 5; i >= 0; i--) {
+  for (let i = n - 1; i >= 0; i--) {
     const d = new Date(y, m - 1 - i, 1);
     arr.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
   }
@@ -740,46 +743,55 @@ function avgLeadTimeDays(pairs) {
   const totalDays = pairs.reduce(function(s, pr) { return s + (new Date(pr[1]) - new Date(pr[0])) / 86400000; }, 0);
   return totalDays / pairs.length;
 }
-function leadTimeInterviewToRecommend(pipelineItems, month) {
+// 2026-08-01より前のフェーズ履歴（内定承諾を除く）はテスト/お試し運用時のノイズのため除外する
+const LEAD_TIME_HISTORY_CUTOFF = '2026-08-01';
+// [面談日, 推薦日] のペア一覧（registered_at×recommended_at）。recommended_atは旧Notionデータに存在しないため、
+// 自然と2026/8以降のデータのみが対象になる
+function pairsInterviewToRecommend(pipelineItems) {
   const pairs = [];
   pipelineItems.forEach(function(p) {
-    if ((p.created_at||'').substring(0,7) !== month || !p.candidate_id) return;
+    if (!p.candidate_id || !p.recommended_at) return;
     const c = CANDIDATE_DATA.find(function(x) { return x.id === p.candidate_id; });
-    if (c && c.registered_at) pairs.push([c.registered_at, p.created_at]);
+    if (c && c.registered_at) pairs.push([c.registered_at, p.recommended_at]);
   });
-  return avgLeadTimeDays(pairs);
+  return pairs;
 }
-function leadTimeRecommendToFirstInterview(pipelineItems, month) {
+// [推薦日, 一次面接実施日] のペア一覧（recommended_at×phase_history）。一次面接のphase_historyは
+// 2026/8より前はテストデータのみのため、対象を2026/8以降到達分に限定する
+function pairsRecommendToFirstInterview(pipelineItems) {
   const map = firstOccurrenceMap(pipelineItems, ['一次面接']);
   const pairs = [];
   Object.keys(map).forEach(function(pid) {
-    if (map[pid].substring(0,7) !== month) return;
+    if (map[pid] < LEAD_TIME_HISTORY_CUTOFF) return;
     const p = pipelineItems.find(function(x) { return x.id === pid; });
-    if (p && p.created_at) pairs.push([p.created_at, map[pid]]);
+    if (p && p.recommended_at) pairs.push([p.recommended_at, map[pid]]);
   });
-  return avgLeadTimeDays(pairs);
+  return pairs;
 }
-function leadTimeOfferToAccept(pipelineItems, month) {
+// [内定日, 内定承諾日] のペア一覧。内定側のphase_historyは2026/8より前はテストデータのみのため、
+// 内定到達日が2026/8以降のものに限定する（内定承諾側は相川分の予実突合により全期間信頼できる）
+function pairsOfferToAccept(pipelineItems) {
   const offerMap = firstOccurrenceMap(pipelineItems, ['内定']);
   const acceptMap = firstOccurrenceMap(pipelineItems, ['内定承諾']);
   const pairs = [];
   Object.keys(acceptMap).forEach(function(pid) {
-    if (acceptMap[pid].substring(0,7) !== month || !offerMap[pid]) return;
+    if (!offerMap[pid] || offerMap[pid] < LEAD_TIME_HISTORY_CUTOFF) return;
     pairs.push([offerMap[pid], acceptMap[pid]]);
   });
-  return avgLeadTimeDays(pairs);
+  return pairs;
 }
-function leadTimeInterviewToAccept(pipelineItems, month) {
+// [面談日, 内定承諾日] のペア一覧（registered_at×phase_history）。registered_atは旧Notionの元日時が
+// 保持されており、内定承諾のphase_historyも遡及入力されているため全期間で計算可能
+function pairsInterviewToAccept(pipelineItems) {
   const acceptMap = firstOccurrenceMap(pipelineItems, ['内定承諾']);
   const pairs = [];
   Object.keys(acceptMap).forEach(function(pid) {
-    if (acceptMap[pid].substring(0,7) !== month) return;
     const p = pipelineItems.find(function(x) { return x.id === pid; });
     if (!p || !p.candidate_id) return;
     const c = CANDIDATE_DATA.find(function(x) { return x.id === p.candidate_id; });
     if (c && c.registered_at) pairs.push([c.registered_at, acceptMap[pid]]);
   });
-  return avgLeadTimeDays(pairs);
+  return pairs;
 }
 function fmtDays(v) { return v == null ? '-' : Math.round(v*10)/10 + '日'; }
 
@@ -877,16 +889,34 @@ function renderAxisMatchAnalysis(pipelineItems, month) {
   return html;
 }
 
+// pairsの2番目の日付（終点イベント）が直近4ヶ月に入っているものだけ抽出して平均を出す
+function leadTimeSummary(pairs, recentMonths) {
+  const all = avgLeadTimeDays(pairs);
+  const recentPairs = pairs.filter(function(pr) { return recentMonths.indexOf(pr[1].substring(0,7)) !== -1; });
+  const recent = avgLeadTimeDays(recentPairs);
+  return { all: all, allN: pairs.length, recent: recent, recentN: recentPairs.length };
+}
+function leadTimeCard(label, stat) {
+  return '<div class="kpi-card">' +
+    '<div class="kpi-label">' + label + '</div>' +
+    '<div class="kpi-main"><span class="kpi-value">' + fmtDays(stat.all) + '</span></div>' +
+    '<div class="kpi-sub">全期間平均（n=' + stat.allN + '）</div>' +
+    '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">' +
+    '<div class="kpi-main" style="font-size:18px"><span class="kpi-value">' + fmtDays(stat.recent) + '</span></div>' +
+    '<div class="kpi-sub">直近4ヶ月平均（n=' + stat.recentN + '）</div></div>' +
+    '</div>';
+}
 function renderLeadTimeSection(pipelineItems) {
-  const a = leadTimeInterviewToRecommend(pipelineItems, currentMonth);
-  const b = leadTimeRecommendToFirstInterview(pipelineItems, currentMonth);
-  const c = leadTimeOfferToAccept(pipelineItems, currentMonth);
-  const d = leadTimeInterviewToAccept(pipelineItems, currentMonth);
+  const recentMonths = getRecentNMonths(currentMonth, 4);
+  const a = leadTimeSummary(pairsInterviewToRecommend(pipelineItems), recentMonths);
+  const b = leadTimeSummary(pairsRecommendToFirstInterview(pipelineItems), recentMonths);
+  const c = leadTimeSummary(pairsOfferToAccept(pipelineItems), recentMonths);
+  const d = leadTimeSummary(pairsInterviewToAccept(pipelineItems), recentMonths);
   let html = '<div class="kpi-grid">';
-  html += kpiCard('面談→推薦', fmtDays(a), '平均日数');
-  html += kpiCard('推薦→一次面接実施日', fmtDays(b), '平均日数');
-  html += kpiCard('内定→内定承諾', fmtDays(c), '平均日数');
-  html += kpiCard('面談→内定承諾', fmtDays(d), '平均日数（トータル）');
+  html += leadTimeCard('面談→推薦', a);
+  html += leadTimeCard('推薦→一次面接実施日', b);
+  html += leadTimeCard('内定→内定承諾', c);
+  html += leadTimeCard('面談→内定承諾（トータル）', d);
   html += '</div>';
   return html;
 }
