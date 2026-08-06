@@ -383,14 +383,15 @@ function countUniqueByCandidatePhase(pipelineItems, pipelinePhase, candidatePhas
   });
   return ids.size;
 }
-// 推薦（＝求人への提案＝パイプライン新規作成）件数（延べ）
+// 推薦（＝求人への提案）件数（延べ）＝パイプラインが「応募承諾」フェーズに到達した件数
 function countRecommendsDeal(pipelineItems, month) {
-  return pipelineItems.filter(p => (p.created_at||'').substring(0,7) === month).length;
+  return countPhaseReachedInMonth(pipelineItems, '応募承諾', month);
 }
-// 推薦人数（ユニーク候補者数）
-function countRecommendsUnique(pipelineItems, month) {
-  const ids = new Set(pipelineItems.filter(p => (p.created_at||'').substring(0,7) === month).map(p => p.candidate_id).filter(Boolean));
-  return ids.size;
+// 選考なう相当フェーズ（候補者の「選考なう」到達日バックフィル・目安算出に使用）
+const SENKOU_NOW_PHASES = ['書類選考','カジュアル面談','一次面接','二次～面接','最終面接'];
+// 推薦人数（ユニーク候補者数）＝候補者ステータスが「選考なう」に初到達した人数（candidates.senkou_now_at基準）
+function countRecommendsUnique(candidateItems, month) {
+  return candidateItems.filter(function(c) { return c.senkou_now_at && c.senkou_now_at.substring(0,7) === month; }).length;
 }
 const ACCEPT_PHASES = ['内定承諾','入社待ち','入社済み'];
 function countAcceptsForMonths(pipelineItems, monthList) {
@@ -445,7 +446,7 @@ function computeBaseMetric(key, pipelineItems, candidateItems, month, sourceFilt
     case 'accept': return countPhaseReachedInMonth(pipelineItems, '内定承諾', month);
     case 'interviews': return candidateItems.filter(c => (c.registered_at||'').substring(0,7) === month).length;
     case 'recommend_deal': return countRecommendsDeal(pipelineItems, month);
-    case 'recommend_unique': return countRecommendsUnique(pipelineItems, month);
+    case 'recommend_unique': return countRecommendsUnique(candidateItems, month);
     case 'recommends': {
       const ids = [...new Set(pipelineItems.map(p => p.member_id).filter(Boolean))];
       return ids.reduce((s,mid) => { const t = TARGETS.find(t => t.member_id===mid && t.year_month===month); return s + ((t && t.recommend_actual) || 0); }, 0);
@@ -480,7 +481,7 @@ const BASE_METRIC_OPTIONS = [
   { key: 'scout', label: 'スカウト数（手入力）' },
   { key: 'lead', label: 'リード獲得数（手入力）' },
   { key: 'interviews', label: '面談数（候補者登録数）' },
-  { key: 'recommend_deal', label: '推薦件数（延べ）' },
+  { key: 'recommend_deal', label: '推薦件数（延べ・応募承諾到達）' },
   { key: 'recommend_unique', label: '推薦人数（ユニーク）' },
   { key: 'recommends', label: '推薦数（手入力合計）' },
   { key: 'doc_screen', label: '書類選考到達数（フェーズ）' },
@@ -507,8 +508,7 @@ function render() {
 
   // ===== ファネル（スカウト〜内定承諾） =====
   const interviews = computeBaseMetric('interviews', myPipeline, myCandidates, currentMonth);
-  const recDeal = countRecommendsDeal(myPipeline, currentMonth);
-  const recUnique = countRecommendsUnique(myPipeline, currentMonth);
+  const recUnique = countRecommendsUnique(myCandidates, currentMonth);
   const casualDeal = countPhaseReachedInMonth(myPipeline, 'カジュアル面談', currentMonth);
   const firstDeal = countPhaseReachedInMonth(myPipeline, '一次面接', currentMonth);
   const casualOrFirstDeal = casualDeal + firstDeal;
@@ -982,7 +982,7 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
   months.forEach(function(m) {
     const interviews = candidateItems.filter(function(c){return (c.registered_at||'').substring(0,7)===m;}).length;
     const recDeal = countRecommendsDeal(pipelineItems, m);
-    const recUnique = countRecommendsUnique(pipelineItems, m);
+    const recUnique = countRecommendsUnique(candidateItems, m);
     const casualOrFirstM = countUniqueReachedAnyPhase(pipelineItems, ['カジュアル面談','一次面接'], m);
     const docPassRate = recUnique ? casualOrFirstM/recUnique : null;
     const firstI = countPhaseReachedInMonth(pipelineItems, '一次面接', m);
@@ -1048,7 +1048,7 @@ function computeMediaMetricsForMonth(source, month, memberIds) {
   const srcCandidateIds = new Set(srcCandidates.map(c => c.id));
   const interviews = srcCandidates.filter(c => (c.registered_at||'').substring(0,7) === month).length;
   const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
-  const recUnique = countRecommendsUnique(srcPipeline, month);
+  const recUnique = countRecommendsUnique(srcCandidates, month);
   const offers = countPhaseReachedInMonth(srcPipeline, '内定', month);
   const accepts = countPhaseReachedInMonth(srcPipeline, '内定承諾', month);
   return {
@@ -1078,7 +1078,8 @@ function computeMediaPeriodStats(source, monthList, memberIds) {
   const srcCandidateIds = new Set(srcCandidates.map(c => c.id));
   const interviews = srcCandidates.filter(c => inPeriod((c.registered_at||'').substring(0,7))).length;
   const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
-  const recUnique = new Set(srcPipeline.filter(p => inPeriod((p.created_at||'').substring(0,7))).map(p => p.candidate_id)).size;
+  const recUnique = (monthList === null ? allMonthsInRange(DATA_START_MONTH, currentMonth) : monthList)
+    .reduce((s,ym) => s + recommendCountForMonth(source, ym, memberIds, srcCandidates), 0);
   const offerMap = firstOccurrenceMap(srcPipeline, ['内定']);
   const offers = Object.values(offerMap).filter(d => inPeriod(d.substring(0,7))).length;
   const acceptMap = firstOccurrenceMap(srcPipeline, ['内定承諾']);
@@ -1126,13 +1127,35 @@ function renderMediaRateSummary() {
   return html;
 }
 
+const SYSTEM_START_MONTH = '2026-08'; // この月以降はパイプライン自動集計、それより前は手入力（予実シート由来）の推薦人数を使う
+const DATA_START_MONTH = '2025-02'; // 手入力データの最も古い月（予実管理シート・移行データの範囲）
+function recommendCountForMonth(source, ym, memberIds, srcCandidates) {
+  if (ym < SYSTEM_START_MONTH) {
+    return MANUAL_KPI.filter(m => m.year_month === ym && memberIds.includes(m.member_id) && (source === null || m.source === source))
+      .reduce((s,m) => s + (m.recommend_count||0), 0);
+  }
+  return countRecommendsUnique(srcCandidates, ym);
+}
+function allMonthsInRange(startYM, endYM) {
+  const [sy,sm] = startYM.split('-').map(Number);
+  const [ey,em] = endYM.split('-').map(Number);
+  const arr = [];
+  let d = new Date(sy, sm-1, 1);
+  const end = new Date(ey, em-1, 1);
+  while (d <= end) {
+    arr.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
+    d.setMonth(d.getMonth()+1);
+  }
+  return arr;
+}
+
 function renderMediaTable() {
   const memberIds = currentMember === '全員' ? MEMBERS.map(m => m.id) : [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
   let html = '<div style="overflow-x:auto"><table class="media-table"><thead><tr>' +
     '<th>媒体</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>面談数</th><th>面談→推薦率</th>' +
-    '<th>求人提案数</th><th>推薦人数</th><th>推薦→内定率</th><th>内定数</th><th>内定→承諾率</th><th>承諾数</th>' +
+    '<th>推薦人数</th><th>推薦→内定率</th><th>内定数</th><th>内定→承諾率</th><th>承諾数</th>' +
     '</tr></thead><tbody>';
-  const totals = { scoutTotal:0, leadTotal:0, interviews:0, recDeal:0, recUnique:0, offers:0, accepts:0 };
+  const totals = { scoutTotal:0, leadTotal:0, interviews:0, recUnique:0, offers:0, accepts:0 };
   SOURCE_LIST.forEach(function(source) {
     const scoutTotal = MANUAL_KPI.filter(m => m.year_month===currentMonth && m.source===source && memberIds.includes(m.member_id)).reduce((s,m)=>s+(m.scout_count||0),0);
     const leadTotal = MANUAL_KPI.filter(m => m.year_month===currentMonth && m.source===source && memberIds.includes(m.member_id)).reduce((s,m)=>s+(m.lead_count||0),0);
@@ -1142,13 +1165,12 @@ function renderMediaTable() {
     const srcCandidateIds = new Set(srcCandidates.map(c => c.id));
     const interviews = srcCandidates.filter(c => (c.registered_at||'').substring(0,7) === currentMonth).length;
     const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
-    const recDeal = countRecommendsDeal(srcPipeline, currentMonth);
-    const recUnique = countRecommendsUnique(srcPipeline, currentMonth);
+    const recUnique = recommendCountForMonth(source, currentMonth, memberIds, srcCandidates);
     const offers = countPhaseReachedInMonth(srcPipeline, '内定', currentMonth);
     const accepts = countPhaseReachedInMonth(srcPipeline, '内定承諾', currentMonth);
 
     totals.scoutTotal += scoutTotal; totals.leadTotal += leadTotal; totals.interviews += interviews;
-    totals.recDeal += recDeal; totals.recUnique += recUnique; totals.offers += offers; totals.accepts += accepts;
+    totals.recUnique += recUnique; totals.offers += offers; totals.accepts += accepts;
 
     const interviewToRecRate = interviews ? recUnique/interviews : null;
     const recToOfferRate = recUnique ? offers/recUnique : null;
@@ -1167,7 +1189,6 @@ function renderMediaTable() {
     html += '<td>' + fmtPct(replyRate) + '</td>';
     html += '<td>' + interviews + '</td>';
     html += '<td>' + fmtPct(interviewToRecRate) + '</td>';
-    html += '<td>' + recDeal + '</td>';
     html += '<td>' + recUnique + '</td>';
     html += '<td>' + fmtPct(recToOfferRate) + '</td>';
     html += '<td>' + offers + '</td>';
@@ -1182,7 +1203,7 @@ function renderMediaTable() {
   html += '<tr style="font-weight:700;background:#f4f4f0">' +
     '<td>合計</td><td>' + totals.scoutTotal + '</td><td>' + totals.leadTotal + '</td><td>' + fmtPct(totalReplyRate) + '</td>' +
     '<td>' + totals.interviews + '</td><td>' + fmtPct(totalInterviewToRecRate) + '</td>' +
-    '<td>' + totals.recDeal + '</td><td>' + totals.recUnique + '</td><td>' + fmtPct(totalRecToOfferRate) + '</td>' +
+    '<td>' + totals.recUnique + '</td><td>' + fmtPct(totalRecToOfferRate) + '</td>' +
     '<td>' + totals.offers + '</td><td>' + fmtPct(totalOfferToAcceptRate) + '</td><td>' + totals.accepts + '</td></tr>';
   html += '</tbody></table></div>';
   return html;
