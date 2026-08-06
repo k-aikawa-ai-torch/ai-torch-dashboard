@@ -614,6 +614,12 @@ function render() {
   html += renderMediaTable();
   html += '</div>';
 
+  // ===== 媒体別遷移率サマリー（今月・直近4ヶ月・全期間） =====
+  html += '<div class="section-block">';
+  html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">媒体別遷移率サマリー</span><span class="sub">今月・直近4ヶ月・全期間の比較</span></div>';
+  html += renderMediaRateSummary();
+  html += '</div>';
+
   // ===== リードタイム分析 =====
   html += '<div class="section-block">';
   html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">リードタイム分析</span><span class="sub">' + currentMonth + '・各段階の平均日数</span></div>';
@@ -1053,6 +1059,64 @@ function computeMediaMetricsForMonth(source, month, memberIds) {
     offerToAcceptRate: offers ? accepts/offers : null,
     interviewToAcceptRate: interviews ? accepts/interviews : null,
   };
+}
+
+// source=nullなら全媒体合算、monthList=nullなら全期間（フィルタなし）
+function computeMediaPeriodStats(source, monthList, memberIds) {
+  const inPeriod = function(ym) { return monthList === null || monthList.includes(ym); };
+  const scoutLeadRows = MANUAL_KPI.filter(m => inPeriod(m.year_month) && memberIds.includes(m.member_id) && (source === null || m.source === source));
+  const scoutTotal = scoutLeadRows.reduce((s,m)=>s+(m.scout_count||0),0);
+  const leadTotal = scoutLeadRows.reduce((s,m)=>s+(m.lead_count||0),0);
+  const srcCandidates = CANDIDATE_DATA.filter(c => memberIds.includes(c.member_id) && (source === null || cleanSource(c.source) === source));
+  const srcCandidateIds = new Set(srcCandidates.map(c => c.id));
+  const interviews = srcCandidates.filter(c => inPeriod((c.registered_at||'').substring(0,7))).length;
+  const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
+  const recUnique = new Set(srcPipeline.filter(p => inPeriod((p.created_at||'').substring(0,7))).map(p => p.candidate_id)).size;
+  const offerMap = firstOccurrenceMap(srcPipeline, ['内定']);
+  const offers = Object.values(offerMap).filter(d => inPeriod(d.substring(0,7))).length;
+  const acceptMap = firstOccurrenceMap(srcPipeline, ['内定承諾']);
+  const accepts = Object.values(acceptMap).filter(d => inPeriod(d.substring(0,7))).length;
+  return {
+    replyRate: scoutTotal ? leadTotal/scoutTotal : null,
+    interviewToRecRate: interviews ? recUnique/interviews : null,
+    recToOfferRate: recUnique ? offers/recUnique : null,
+    offerToAcceptRate: offers ? accepts/offers : null,
+  };
+}
+const MEDIA_RATE_METRICS = [
+  { key: 'replyRate', label: '返信率' },
+  { key: 'interviewToRecRate', label: '面談→推薦率' },
+  { key: 'recToOfferRate', label: '推薦→内定率' },
+  { key: 'offerToAcceptRate', label: '内定→承諾率' },
+];
+function renderMediaRateSummary() {
+  const memberIds = currentMember === '全員' ? MEMBERS.map(m => m.id) : [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
+  const recentMonths = getRecentNMonths(currentMonth, 4);
+  const periods = [
+    { label: currentMonth.substring(5,7) + '月（今月）', list: [currentMonth] },
+    { label: '直近4ヶ月', list: recentMonths },
+    { label: '全期間', list: null },
+  ];
+  let html = '<div style="overflow-x:auto"><table class="media-table"><thead><tr><th rowspan="2">媒体</th>';
+  MEDIA_RATE_METRICS.forEach(function(m) { html += '<th colspan="3" style="text-align:center">' + m.label + '</th>'; });
+  html += '</tr><tr>';
+  MEDIA_RATE_METRICS.forEach(function() {
+    periods.forEach(function(p) { html += '<th style="font-size:11px;font-weight:400;white-space:nowrap">' + p.label + '</th>'; });
+  });
+  html += '</tr></thead><tbody>';
+  function statsRow(label, source) {
+    const statsPerPeriod = periods.map(function(p) { return computeMediaPeriodStats(source, p.list, memberIds); });
+    let row = '<tr><td>' + label + '</td>';
+    MEDIA_RATE_METRICS.forEach(function(m) {
+      statsPerPeriod.forEach(function(st) { row += '<td>' + fmtPct(st[m.key]) + '</td>'; });
+    });
+    row += '</tr>';
+    return row;
+  }
+  SOURCE_LIST.forEach(function(source) { html += statsRow(source, source); });
+  html += statsRow('合計（全媒体）', null).replace('<tr>', '<tr style="font-weight:700;background:#f4f4f0">');
+  html += '</tbody></table></div>';
+  return html;
 }
 
 function renderMediaTable() {
