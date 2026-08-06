@@ -1041,27 +1041,20 @@ function mediaMetricsRowHtml(label, d) {
 }
 function renderMonthlyMediaTables(memberIds) {
   const months = allMonthsInRange(DATA_START_MONTH, currentMonth); // 全期間・古い月から新しい月の順
-  // 4ヶ月ごとのブロックに分割（データ開始月起点）
-  const blocks = [];
-  for (let i = 0; i < months.length; i += 4) {
-    blocks.push(months.slice(i, i+4));
-  }
+  const recentMonths = getRecentNMonths(currentMonth, 4);
   let html = '';
   SOURCE_LIST.forEach(function(source) {
     html += '<div style="font-size:12px;color:#6B7A99;margin:14px 0 4px;font-weight:500">' + source + '</div>';
-    // ---- サマリー（全期間・4ヶ月ブロックごと） ----
+    // ---- サマリー（直近4ヶ月・全期間） ----
     html += '<table class="media-summary-table"><thead><tr>' +
       '<th>期間</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>面談数</th><th>面談→推薦率</th>' +
       '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>面談→承諾率</th>' +
       '</tr></thead><tbody>';
+    html += mediaMetricsRowHtml('直近4ヶ月', aggregateMediaMetrics(source, recentMonths, memberIds));
     html += mediaMetricsRowHtml('全期間（' + months[0] + '〜' + months[months.length-1] + '）', aggregateMediaMetrics(source, months, memberIds));
-    blocks.forEach(function(b) {
-      const label = b.length > 1 ? (b[0] + '〜' + b[b.length-1]) : b[0];
-      html += mediaMetricsRowHtml(label, aggregateMediaMetrics(source, b, memberIds));
-    });
     html += '</tbody></table>';
-    // ---- 月別詳細（枠内スクロール・先頭行/列固定） ----
-    html += '<div class="monthly-scroll-wrap"><table class="media-table"><thead><tr>' +
+    // ---- 月別詳細（枠内スクロール・先頭行/列固定・4ヶ月分くらいの高さ） ----
+    html += '<div class="monthly-scroll-wrap" style="max-height:210px"><table class="media-table"><thead><tr>' +
       '<th>月</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>面談数</th><th>面談→推薦率</th>' +
       '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>面談→承諾率</th>' +
       '</tr></thead><tbody>';
