@@ -1048,8 +1048,8 @@ function computeMediaMetricsForMonth(source, month, memberIds) {
   const srcCandidateIds = new Set(srcCandidates.map(c => c.id));
   const interviews = srcCandidates.filter(c => (c.registered_at||'').substring(0,7) === month).length;
   const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
-  const recUnique = countRecommendsUnique(srcCandidates, month);
-  const offers = countPhaseReachedInMonth(srcPipeline, '内定', month);
+  const recUnique = recommendCountForMonth(source, month, memberIds, srcCandidates);
+  const offers = offerCountForMonth(source, month, memberIds, srcPipeline);
   const accepts = countPhaseReachedInMonth(srcPipeline, '内定承諾', month);
   return {
     scoutTotal, leadTotal, interviews, recUnique, offers, accepts,
@@ -1080,8 +1080,8 @@ function computeMediaPeriodStats(source, monthList, memberIds) {
   const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
   const recUnique = (monthList === null ? allMonthsInRange(DATA_START_MONTH, currentMonth) : monthList)
     .reduce((s,ym) => s + recommendCountForMonth(source, ym, memberIds, srcCandidates), 0);
-  const offerMap = firstOccurrenceMap(srcPipeline, ['内定']);
-  const offers = Object.values(offerMap).filter(d => inPeriod(d.substring(0,7))).length;
+  const offers = (monthList === null ? allMonthsInRange(DATA_START_MONTH, currentMonth) : monthList)
+    .reduce((s,ym) => s + offerCountForMonth(source, ym, memberIds, srcPipeline), 0);
   const acceptMap = firstOccurrenceMap(srcPipeline, ['内定承諾']);
   const accepts = Object.values(acceptMap).filter(d => inPeriod(d.substring(0,7))).length;
   return {
@@ -1136,6 +1136,14 @@ function recommendCountForMonth(source, ym, memberIds, srcCandidates) {
   }
   return countRecommendsUnique(srcCandidates, ym);
 }
+// 内定数（延べ）＝2026/8以降はパイプライン自動集計、それより前は手入力（予実シート由来）の内定数を使う
+function offerCountForMonth(source, ym, memberIds, srcPipeline) {
+  if (ym < SYSTEM_START_MONTH) {
+    return MANUAL_KPI.filter(m => m.year_month === ym && memberIds.includes(m.member_id) && (source === null || m.source === source))
+      .reduce((s,m) => s + (m.offer_count||0), 0);
+  }
+  return countPhaseReachedInMonth(srcPipeline, '内定', ym);
+}
 function allMonthsInRange(startYM, endYM) {
   const [sy,sm] = startYM.split('-').map(Number);
   const [ey,em] = endYM.split('-').map(Number);
@@ -1166,7 +1174,7 @@ function renderMediaTable() {
     const interviews = srcCandidates.filter(c => (c.registered_at||'').substring(0,7) === currentMonth).length;
     const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
     const recUnique = recommendCountForMonth(source, currentMonth, memberIds, srcCandidates);
-    const offers = countPhaseReachedInMonth(srcPipeline, '内定', currentMonth);
+    const offers = offerCountForMonth(source, currentMonth, memberIds, srcPipeline);
     const accepts = countPhaseReachedInMonth(srcPipeline, '内定承諾', currentMonth);
 
     totals.scoutTotal += scoutTotal; totals.leadTotal += leadTotal; totals.interviews += interviews;
