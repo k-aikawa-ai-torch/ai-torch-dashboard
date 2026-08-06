@@ -212,6 +212,8 @@ let MANUAL_KPI = [], CUSTOM_METRICS = [], RISK_INPUTS = [], ALL_COMPANIES = [], 
 let currentMember = '全員';
 let currentMonth = '';
 let editMode = false;
+let monthlyMediaOpen = false;
+function toggleMonthlyMediaOpen() { monthlyMediaOpen = !monthlyMediaOpen; render(); }
 let CURRENT_USER_EMAIL = null;
 let ME = null;
 
@@ -567,7 +569,7 @@ function render() {
   const tAcceptRate = tOffer ? tAccept/tOffer : null;
 
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">ファネル（スカウト〜内定承諾）</span><span class="sub">' + currentMonth + '・下段は目標値</span></div>';
+  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">当月ファネル（スカウト〜内定承諾）</span><span class="sub">' + currentMonth + '・下段は目標値</span></div>';
   html += '<div style="text-align:right;margin-bottom:10px;display:flex;justify-content:flex-end;gap:8px">';
   html += '<button class="edit-toggle-btn" onclick="openMediaSettingsModal()">⚙️ 集計対象媒体を設定</button>';
   if (currentMember !== '全員') {
@@ -619,22 +621,16 @@ function render() {
   html += renderMonthlyFunnelTables(myPipeline, myCandidates, memberIds);
   html += '</div>';
 
-  // ===== リスク管理（辞退・早期退職） =====
-  html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#e24b4a"></span><span class="title">リスク管理</span><span class="sub">' + currentMonth + '・手入力</span></div>';
-  html += renderRiskSection(memberIds);
-  html += '</div>';
-
   // ===== 手入力：スカウト数・リード獲得数（媒体別） =====
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">媒体別スカウト・リード実績</span><span class="sub">' + currentMonth + (currentMember==='全員' ? '・全員合計' : '・' + currentMember) + '</span></div>';
+  html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">当月媒体別スカウト・リード実績</span><span class="sub">' + currentMonth + (currentMember==='全員' ? '・全員合計' : '・' + currentMember) + '</span></div>';
   html += '<div style="text-align:right;margin-bottom:10px"><button class="edit-toggle-btn' + (editMode?' on':'') + '" onclick="toggleEditMode()">' + (editMode ? '✓ 編集モード中' : '✏️ 入力モード') + '</button></div>';
   html += renderMediaTable();
   html += '</div>';
 
   // ===== 媒体別遷移率サマリー（今月・直近4ヶ月・全期間） =====
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">媒体別遷移率サマリー</span><span class="sub">今月・直近4ヶ月・全期間の比較</span></div>';
+  html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">当月媒体別遷移率サマリー</span><span class="sub">今月・直近4ヶ月・全期間の比較（媒体名クリックで月別推移）</span></div>';
   html += renderMediaRateSummary();
   html += '</div>';
 
@@ -646,26 +642,27 @@ function render() {
 
   // ===== クロス集計：媒体×希望年収帯 =====
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">媒体 × 希望年収帯</span><span class="sub">' + currentMonth + '登録の候補者数</span></div>';
+  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">媒体 × 希望年収帯</span><span class="sub">直近4ヶ月・全期間登録の候補者数</span></div>';
   html += '<div style="overflow-x:auto">' + renderSalaryCrosstab(myCandidates) + '</div>';
   html += '</div>';
 
   // ===== クロス集計：媒体×職種 =====
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">媒体 × 職種</span><span class="sub">' + currentMonth + '登録の候補者数</span></div>';
+  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">媒体 × 職種</span><span class="sub">直近4ヶ月・全期間登録の候補者数</span></div>';
   html += renderJobCrosstab(myCandidates);
   html += '</div>';
 
   // ===== 月次一覧（媒体別、直近6ヶ月） =====
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">月次一覧（媒体別）</span><span class="sub">直近6ヶ月・縦軸=月／横軸=指標</span></div>';
-  html += renderMonthlyMediaTables(memberIds);
+  html += '<div class="sec-header"><span class="bar" style="background:#4a3aa7"></span><span class="title">月次一覧（媒体別）</span><span class="sub">全期間・縦軸=月／横軸=指標</span>' +
+    '<button class="edit-toggle-btn" style="margin-left:auto" onclick="toggleMonthlyMediaOpen()">' + (monthlyMediaOpen ? '▲ 閉じる' : '▼ 開く') + '</button></div>';
+  if (monthlyMediaOpen) html += renderMonthlyMediaTables(memberIds);
   html += '</div>';
 
   // ===== 企業別分析 =====
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#eb6834"></span><span class="title">企業別分析</span><span class="sub">' + currentMonth + '・企業紐付け済みのパイプラインのみ</span></div>';
-  html += renderCompanyAnalysis(myPipeline, currentMonth);
+  html += '<div class="sec-header"><span class="bar" style="background:#eb6834"></span><span class="title">企業別分析</span><span class="sub">全期間・企業紐付け済みのパイプラインのみ</span></div>';
+  html += renderCompanyAnalysis(myPipeline);
   html += '</div>';
 
   // ===== 転職軸マッチ度分析 =====
@@ -840,8 +837,11 @@ function getCompanyAxisTags(c) {
   return tags;
 }
 
-// ============ 企業別分析（company_id紐付け済みのpipelineのみ対象） ============
-function renderCompanyAnalysis(pipelineItems, month) {
+// ============ 企業別分析（company_id紐付け済みのpipelineのみ対象・全期間） ============
+function countPhaseReachedAllTime(pipelineItems, phase) {
+  return Object.keys(firstOccurrenceMap(pipelineItems, [phase])).length;
+}
+function renderCompanyAnalysis(pipelineItems) {
   const linked = pipelineItems.filter(p => p.company_id);
   if (!linked.length) {
     return '<div style="color:#9aa3b8;font-size:12px">企業紐付け済みのパイプラインがまだありません（今後、提案求人の編集画面で企業を選択すると集計対象になります）</div>';
@@ -852,16 +852,16 @@ function renderCompanyAnalysis(pipelineItems, month) {
     if (!byCompany[name]) byCompany[name] = { pipelines: [] };
     byCompany[name].pipelines.push(p);
   });
-  let html = '<div style="overflow-x:auto"><table class="media-table"><thead><tr>' +
+  let html = '<div class="monthly-scroll-wrap" style="max-height:420px"><table class="media-table"><thead><tr>' +
     '<th>企業</th><th>推薦件数</th><th>推薦→一次率</th><th>一次面接件数</th><th>一次→最終率</th><th>最終面接件数</th><th>最終→内定率</th><th>内定件数</th><th>内定→承諾率</th><th>内定承諾件数</th>' +
     '</tr></thead><tbody>';
   Object.keys(byCompany).sort().forEach(function(name) {
     const ps = byCompany[name].pipelines;
-    const rec = ps.filter(p => (p.created_at||'').substring(0,7) === month).length;
-    const first = countPhaseReachedInMonth(ps, '一次面接', month);
-    const final = countPhaseReachedInMonth(ps, '最終面接', month);
-    const off = countPhaseReachedInMonth(ps, '内定', month);
-    const acc = countPhaseReachedInMonth(ps, '内定承諾', month);
+    const rec = Object.keys(firstOccurrenceMap(ps, RECOMMEND_DEAL_PHASES)).length;
+    const first = countPhaseReachedAllTime(ps, '一次面接');
+    const final = countPhaseReachedAllTime(ps, '最終面接');
+    const off = countPhaseReachedAllTime(ps, '内定');
+    const acc = countPhaseReachedAllTime(ps, '内定承諾');
     const rowKey = 'company-cands-' + name.replace(/[^a-zA-Z0-9ぁ-んァ-ヶ一-龠]/g, '');
     html += '<tr><td onclick="toggleCompanyCandidates(\'' + rowKey + '\')" style="cursor:pointer;color:#0D40D9">' + name + ' <span style="font-size:10px;color:#9aa3b8">（候補者一覧▾）</span></td><td>' + rec + '</td><td>' + fmtPct(rec ? first/rec : null) + '</td>' +
       '<td>' + first + '</td><td>' + fmtPct(first ? final/first : null) + '</td>' +
@@ -950,10 +950,11 @@ function getSalaryBand(salary) {
   if (salary == null) return null;
   return SALARY_BANDS.find(function(b) { return salary >= b.min && salary < b.max; });
 }
-function renderSalaryCrosstab(candidateItems) {
-  let html = '<table class="media-table"><thead><tr><th>媒体</th>' + SALARY_BANDS.map(function(b){return '<th>'+b.label+'</th>';}).join('') + '</tr></thead><tbody>';
+function inMonthList(ym, monthList) { return monthList === null || monthList.includes(ym); }
+function renderSalaryCrosstabForPeriod(candidateItems, monthList) {
+  let html = '<div class="monthly-scroll-wrap" style="max-height:280px"><table class="media-table"><thead><tr><th>媒体</th>' + SALARY_BANDS.map(function(b){return '<th>'+b.label+'</th>';}).join('') + '</tr></thead><tbody>';
   SOURCE_LIST.forEach(function(source) {
-    const cands = candidateItems.filter(function(c) { return cleanSource(c.source) === source && (c.registered_at||'').substring(0,7) === currentMonth; });
+    const cands = candidateItems.filter(function(c) { return cleanSource(c.source) === source && inMonthList((c.registered_at||'').substring(0,7), monthList); });
     html += '<tr><td>' + source + '</td>';
     SALARY_BANDS.forEach(function(b) {
       const cnt = cands.filter(function(c) { const band = getSalaryBand(c.desired_salary); return band && band.label === b.label; }).length;
@@ -961,13 +962,13 @@ function renderSalaryCrosstab(candidateItems) {
     });
     html += '</tr>';
   });
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
   return html;
 }
-function renderJobCrosstab(candidateItems) {
-  let html = '<div style="overflow-x:auto"><table class="media-table"><thead><tr><th>媒体</th>' + JOB_TYPE_LIST.map(function(j){return '<th>'+j+'</th>';}).join('') + '</tr></thead><tbody>';
+function renderJobCrosstabForPeriod(candidateItems, monthList) {
+  let html = '<div class="monthly-scroll-wrap" style="max-height:280px"><table class="media-table"><thead><tr><th>媒体</th>' + JOB_TYPE_LIST.map(function(j){return '<th>'+j+'</th>';}).join('') + '</tr></thead><tbody>';
   SOURCE_LIST.forEach(function(source) {
-    const cands = candidateItems.filter(function(c) { return cleanSource(c.source) === source && (c.registered_at||'').substring(0,7) === currentMonth; });
+    const cands = candidateItems.filter(function(c) { return cleanSource(c.source) === source && inMonthList((c.registered_at||'').substring(0,7), monthList); });
     html += '<tr><td>' + source + '</td>';
     JOB_TYPE_LIST.forEach(function(job) {
       const cnt = cands.filter(function(c) { return (c.job_type||'').split(/[,、]/).map(function(s){return s.trim();}).includes(job); }).length;
@@ -978,6 +979,19 @@ function renderJobCrosstab(candidateItems) {
   html += '</tbody></table></div>';
   return html;
 }
+// 直近4ヶ月・全期間を並べて表示する共通ラッパー
+function renderCrosstabWithPeriods(candidateItems, renderFn) {
+  const recentMonths = getRecentNMonths(currentMonth, 4);
+  let html = '<div style="overflow-x:auto">';
+  html += '<div style="font-size:12px;color:#6B7A99;margin-bottom:4px;font-weight:500">直近4ヶ月（' + recentMonths[0] + '〜' + recentMonths[recentMonths.length-1] + '）</div>';
+  html += renderFn(candidateItems, recentMonths);
+  html += '<div style="font-size:12px;color:#6B7A99;margin:14px 0 4px;font-weight:500">全期間</div>';
+  html += renderFn(candidateItems, null);
+  html += '</div>';
+  return html;
+}
+function renderSalaryCrosstab(candidateItems) { return renderCrosstabWithPeriods(candidateItems, renderSalaryCrosstabForPeriod); }
+function renderJobCrosstab(candidateItems) { return renderCrosstabWithPeriods(candidateItems, renderJobCrosstabForPeriod); }
 
 // ============ 月次一覧（直近6ヶ月）：ファネル・遷移率・リスク ============
 function memberMonthlySum(field, ym, memberIds) {
@@ -988,7 +1002,7 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
   const months = getRecent6Months(currentMonth);
 
   let html = '<div class="section-title">ファネル件数・遷移率・リスク（直近6ヶ月）</div>';
-  html += '<div style="overflow-x:auto"><table class="media-table"><thead><tr>' +
+  html += '<div class="monthly-scroll-wrap" style="max-height:280px"><table class="media-table"><thead><tr>' +
     '<th>月</th><th>面談数</th><th>推薦件数（延べ）</th><th>推薦人数</th>' +
     '<th>一次面接</th><th>一次⇒最終率</th><th>最終面接</th><th>最終⇒内定率</th><th>内定（延べ）</th>' +
     '<th>内定承諾率</th><th>内定承諾</th><th>入社前辞退数</th><th>早期退職数</th>' +
@@ -1146,7 +1160,7 @@ function renderMediaRateSummary() {
     { label: '直近4ヶ月', list: recentMonths },
     { label: '全期間', list: null },
   ];
-  let html = '<div style="overflow-x:auto"><table class="media-table"><thead><tr><th rowspan="2">媒体</th>';
+  let html = '<div class="monthly-scroll-wrap" style="max-height:360px"><table class="media-table"><thead><tr><th rowspan="2">媒体</th>';
   MEDIA_RATE_METRICS.forEach(function(m) { html += '<th colspan="3" style="text-align:center">' + m.label + '</th>'; });
   html += '</tr><tr>';
   MEDIA_RATE_METRICS.forEach(function() {
@@ -1155,7 +1169,7 @@ function renderMediaRateSummary() {
   html += '</tr></thead><tbody>';
   function statsRow(label, source) {
     const statsPerPeriod = periods.map(function(p) { return computeMediaPeriodStats(source, p.list, memberIds); });
-    let row = '<tr><td>' + label + '</td>';
+    let row = '<tr><td' + (source ? ' onclick="openMediaModal(\'' + source + '\')" style="cursor:pointer"' : '') + '>' + label + '</td>';
     MEDIA_RATE_METRICS.forEach(function(m) {
       statsPerPeriod.forEach(function(st) { row += '<td>' + fmtPct(st[m.key]) + '</td>'; });
     });
@@ -1216,7 +1230,7 @@ function allMonthsInRange(startYM, endYM) {
 
 function renderMediaTable() {
   const memberIds = currentMember === '全員' ? MEMBERS.map(m => m.id) : [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
-  let html = '<div style="overflow-x:auto"><table class="media-table"><thead><tr>' +
+  let html = '<div class="monthly-scroll-wrap" style="max-height:360px"><table class="media-table"><thead><tr>' +
     '<th>媒体</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>面談数</th><th>面談→推薦率</th>' +
     '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th>' +
     '</tr></thead><tbody>';
@@ -1294,13 +1308,19 @@ async function saveManualInput(memberId, source) {
 function openMediaModal(source) {
   document.getElementById('media-modal-title').textContent = source;
   const memberIds = currentMember === '全員' ? MEMBERS.map(m => m.id) : [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
-  const rows = getMonths().map(function(mo) {
-    const scoutTotal = MANUAL_KPI.filter(m => m.year_month===mo.key && m.source===source && memberIds.includes(m.member_id)).reduce((s,m)=>s+(m.scout_count||0),0);
-    const leadTotal = MANUAL_KPI.filter(m => m.year_month===mo.key && m.source===source && memberIds.includes(m.member_id)).reduce((s,m)=>s+(m.lead_count||0),0);
-    const rate = scoutTotal ? leadTotal/scoutTotal : null;
-    return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:13px"><span>' + mo.label + '</span><span>スカウト' + scoutTotal + '件 / リード' + leadTotal + '件 / 返信率' + fmtPct(rate) + '</span></div>';
+  const months = allMonthsInRange(DATA_START_MONTH, currentMonth).slice().reverse(); // 新しい月が上
+  const rows = months.map(function(ym) {
+    const d = computeMediaMetricsForMonth(source, ym, memberIds);
+    return '<div style="padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:12.5px">' +
+      '<div style="font-weight:600;margin-bottom:2px">' + ym + '</div>' +
+      '<div style="color:#6B7A99">スカウト' + d.scoutTotal + '件 / リード' + d.leadTotal + '件 / 返信率' + fmtPct(d.replyRate) +
+      ' ／ 面談' + d.interviews + '件 ／ 推薦' + d.recUnique + '名（' + fmtPct(d.interviewToRecRate) + '）' +
+      ' ／ 内定' + d.offers + '名（' + fmtPct(d.recToOfferRate) + '）／ 承諾' + d.accepts + '名（' + fmtPct(d.offerToAcceptRate) + '）</div>' +
+      '</div>';
   }).join('');
-  document.getElementById('media-modal-body').innerHTML = '<div style="font-size:12px;color:#6B7A99;margin-bottom:10px">直近5ヶ月の推移</div>' + rows;
+  document.getElementById('media-modal-body').innerHTML =
+    '<div style="font-size:12px;color:#6B7A99;margin-bottom:10px">全期間（' + months[months.length-1] + '〜' + months[0] + '）の推移</div>' +
+    '<div class="monthly-scroll-wrap" style="max-height:360px;border:none">' + rows + '</div>';
   document.getElementById('media-modal').classList.add('open');
 }
 function closeMediaModal() { document.getElementById('media-modal').classList.remove('open'); }
