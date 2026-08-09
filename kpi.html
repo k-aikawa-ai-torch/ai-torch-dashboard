@@ -1006,44 +1006,62 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
   const months = allMonthsInRange(DATA_START_MONTH, currentMonth).slice().reverse(); // 新しい月が上・全期間（枠内スクロールで初期表示は直近6ヶ月分の高さ）
 
   function metricsForMonth(m) {
+    const scoutCount = computeScoutCount(m, memberIds);
+    const leadCount = computeReplyRate(m, memberIds).leadSum;
     const interviews = candidateItems.filter(function(c){return (c.registered_at||'').substring(0,7)===m;}).length;
-    const recDeal = m < SYSTEM_START_MONTH ? memberMonthlySum('recommend_deal', m, memberIds) : countRecommendsDeal(pipelineItems, m);
     const recUnique = recommendCountForMonth(null, m, memberIds, candidateItems);
     const firstI = m < SYSTEM_START_MONTH ? memberMonthlySum('first_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '一次面接', m);
     const finalI = m < SYSTEM_START_MONTH ? memberMonthlySum('final_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '最終面接', m);
     const offerCount = m < SYSTEM_START_MONTH ? memberMonthlySum('offer_deal_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '内定', m);
     const acceptCount = countPhaseReachedInMonth(pipelineItems, '内定承諾', m);
-    const withdrawal = memberIds.reduce(function(s,mid){ const r=RISK_INPUTS.find(function(x){return x.member_id===mid&&x.year_month===m;}); return s+((r&&r.withdrawal_count)||0); },0);
-    const earlyLeave = memberIds.reduce(function(s,mid){ const r=RISK_INPUTS.find(function(x){return x.member_id===mid&&x.year_month===m;}); return s+((r&&r.early_leave_count)||0); },0);
-    return { interviews, recDeal, recUnique, firstI, finalI, offerCount, acceptCount, withdrawal, earlyLeave };
+    return { scoutCount, leadCount, interviews, recUnique, firstI, finalI, offerCount, acceptCount };
   }
+  // 各指標の間の遷移率
+  const FUNNEL_STEPS = [
+    { key: 'scoutCount', label: 'スカウト通数' },
+    { key: 'leadCount', label: 'リード獲得数' },
+    { key: 'interviews', label: '面談数' },
+    { key: 'recUnique', label: '推薦人数' },
+    { key: 'firstI', label: '一次面接数' },
+    { key: 'finalI', label: '最終面接数' },
+    { key: 'offerCount', label: '内定数' },
+    { key: 'acceptCount', label: '内定承諾数' },
+  ];
   function rowHtml(label, d) {
-    return '<tr><td>' + label + '</td><td>' + d.interviews + '</td><td>' + d.recDeal + '</td><td>' + d.recUnique + '</td>' +
-      '<td>' + d.firstI + '</td>' +
-      '<td>' + fmtPct(d.firstI ? d.finalI/d.firstI : null) + '</td><td>' + d.finalI + '</td>' +
-      '<td>' + fmtPct(d.finalI ? d.offerCount/d.finalI : null) + '</td><td>' + d.offerCount + '</td>' +
-      '<td>' + fmtPct(d.offerCount ? d.acceptCount/d.offerCount : null) + '</td><td>' + d.acceptCount + '</td>' +
-      '<td>' + d.withdrawal + '</td><td>' + d.earlyLeave + '</td></tr>';
+    let row = '<tr><td>' + label + '</td>';
+    FUNNEL_STEPS.forEach(function(step, i) {
+      if (i > 0) {
+        const prevKey = FUNNEL_STEPS[i-1].key;
+        const rate = d[prevKey] ? d[step.key]/d[prevKey] : null;
+        row += '<td style="color:#6B7A99;font-size:11px">' + fmtPct(rate) + '</td>';
+      }
+      row += '<td>' + d[step.key] + '</td>';
+    });
+    row += '</tr>';
+    return row;
+  }
+  function headerHtml() {
+    let h = '<th>期間</th>';
+    FUNNEL_STEPS.forEach(function(step, i) {
+      if (i > 0) h += '<th style="font-weight:400;font-size:11px">遷移率</th>';
+      h += '<th>' + step.label + '</th>';
+    });
+    return h;
   }
 
   const monthly = months.map(function(m) { return { m: m, d: metricsForMonth(m) }; });
-  const total = { interviews:0, recDeal:0, recUnique:0, firstI:0, finalI:0, offerCount:0, acceptCount:0, withdrawal:0, earlyLeave:0 };
-  monthly.forEach(function(row) {
-    Object.keys(total).forEach(function(k) { total[k] += row.d[k]; });
-  });
+  const monthCount = monthly.length || 1;
+  const totalSum = { scoutCount:0, leadCount:0, interviews:0, recUnique:0, firstI:0, finalI:0, offerCount:0, acceptCount:0 };
+  monthly.forEach(function(row) { Object.keys(totalSum).forEach(function(k) { totalSum[k] += row.d[k]; }); });
+  // 1ヶ月あたり平均（率は合計件数から再計算するのでtotalSumの比率と一致する）
+  const avg = {};
+  Object.keys(totalSum).forEach(function(k) { avg[k] = Math.round(totalSum[k]/monthCount*10)/10; });
 
   let html = '<div class="section-title">ファネル件数・遷移率・リスク（全期間）</div>';
-  html += '<table class="media-summary-table"><thead><tr>' +
-    '<th>期間</th><th>面談数</th><th>推薦件数（延べ）</th><th>推薦人数</th>' +
-    '<th>一次面接</th><th>一次⇒最終率</th><th>最終面接</th><th>最終⇒内定率</th><th>内定（延べ）</th>' +
-    '<th>内定承諾率</th><th>内定承諾</th><th>入社前辞退数</th><th>早期退職数</th>' +
-    '</tr></thead><tbody>' + rowHtml('全期間合計（' + months[months.length-1] + '〜' + months[0] + '）', total) + '</tbody></table>';
+  html += '<div style="overflow-x:auto"><table class="media-summary-table"><thead><tr>' + headerHtml() + '</tr></thead><tbody>' +
+    rowHtml('全期間平均（' + months[months.length-1] + '〜' + months[0] + '・1ヶ月あたり）', avg) + '</tbody></table></div>';
 
-  html += '<div class="monthly-scroll-wrap" style="max-height:280px"><table class="media-table"><thead><tr>' +
-    '<th>月</th><th>面談数</th><th>推薦件数（延べ）</th><th>推薦人数</th>' +
-    '<th>一次面接</th><th>一次⇒最終率</th><th>最終面接</th><th>最終⇒内定率</th><th>内定（延べ）</th>' +
-    '<th>内定承諾率</th><th>内定承諾</th><th>入社前辞退数</th><th>早期退職数</th>' +
-    '</tr></thead><tbody>';
+  html += '<div class="monthly-scroll-wrap" style="max-height:280px"><table class="media-table"><thead><tr>' + headerHtml() + '</tr></thead><tbody>';
   monthly.forEach(function(row) { html += rowHtml(row.m, row.d); });
   html += '</tbody></table></div>';
 
