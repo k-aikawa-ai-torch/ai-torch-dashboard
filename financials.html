@@ -247,6 +247,21 @@ function firstOccurrenceMap(pipelineItems, phases) {
   return map;
 }
 
+// 返金額（売上減額分）と、それに対応する粗利減額分を算出
+// 入社前辞退：全額返金（従来通り） / 早期退職：手入力した返金額 × 元の利益率（粗利÷売上）
+function calcRefundImpact(p) {
+  const revenueForecast = p.candidates?.revenue_forecast || 0;
+  const originalProfit = p.candidates?.gross_profit;
+  if (p.refund_type === '早期退職') {
+    const refundRevenue = p.refund_amount || 0;
+    const profitRatio = (revenueForecast && originalProfit != null) ? originalProfit / revenueForecast : null;
+    const refundProfit = profitRatio != null ? refundRevenue * profitRatio : refundRevenue; // 利益率不明な場合は返金額そのまま減額
+    return { revenue: refundRevenue, profit: refundProfit };
+  }
+  // 入社前辞退（またはrefund_type未設定の旧データ）：全額返金
+  return { revenue: revenueForecast, profit: originalProfit != null ? originalProfit : 0 };
+}
+
 // ===== 決定ベース（内定承諾日基準）と発生ベース（入社日基準）の売上・粗利集計 =====
 function sumDecisionBasis(pipelineItems, monthList) {
   const map = firstOccurrenceMap(pipelineItems, ACCEPT_PHASES);
@@ -260,11 +275,12 @@ function sumDecisionBasis(pipelineItems, monthList) {
     if (p.candidates?.revenue_forecast) revenue += p.candidates.revenue_forecast;
     if (p.candidates?.gross_profit != null) profit += p.candidates.gross_profit;
   });
-  // 入社前辞退などによる返金：出金月がこの期間に含まれる場合、売上・粗利をマイナス計上する
+  // 入社前辞退・早期退職による返金：出金月がこの期間に含まれる場合、売上・粗利をマイナス計上する
   pipelineItems.forEach(p => {
     if (!p.refund_date || !monthList.includes(p.refund_date.substring(0,7))) return;
-    if (p.candidates?.revenue_forecast) revenue -= p.candidates.revenue_forecast;
-    if (p.candidates?.gross_profit != null) profit -= p.candidates.gross_profit;
+    const impact = calcRefundImpact(p);
+    revenue -= impact.revenue;
+    profit -= impact.profit;
   });
   return { revenue, profit };
 }
@@ -279,11 +295,12 @@ function sumAccrualBasis(pipelineItems, monthList) {
     if (p.candidates?.revenue_forecast) revenue += p.candidates.revenue_forecast;
     if (p.candidates?.gross_profit != null) profit += p.candidates.gross_profit;
   });
-  // 入社前辞退などによる返金：出金月がこの期間に含まれる場合、売上・粗利をマイナス計上する
+  // 入社前辞退・早期退職による返金：出金月がこの期間に含まれる場合、売上・粗利をマイナス計上する
   pipelineItems.forEach(p => {
     if (!p.refund_date || !monthList.includes(p.refund_date.substring(0,7))) return;
-    if (p.candidates?.revenue_forecast) revenue -= p.candidates.revenue_forecast;
-    if (p.candidates?.gross_profit != null) profit -= p.candidates.gross_profit;
+    const impact = calcRefundImpact(p);
+    revenue -= impact.revenue;
+    profit -= impact.profit;
   });
   return { revenue, profit };
 }
@@ -494,7 +511,7 @@ function render() {
   // ===== 事務処理チェックリスト =====
   html += '<div class="section-block">';
   html += '<div class="sec-header"><span class="bar" style="background:#e24b4a"></span><span class="title">事務処理チェックリスト</span><span class="sub">内定承諾以降の案件</span></div>';
-  html += '<div style="font-size:11px;color:#9aa3b8;margin-bottom:8px">入社前辞退・早期退職が発生した場合は、対象案件の「出金日（辞退・早期退職）」列に日付を入力してください（「辞退登録」ボタンから日付を選べます）。その月の売上・粗利からマイナス計上されます。</div>';
+  html += '<div style="font-size:11px;color:#9aa3b8;margin-bottom:8px">入社前辞退・早期退職が発生した場合は、対象案件の「出金日（辞退・早期退職）」列の「辞退登録」ボタンから登録してください。入社前辞退は全額、早期退職は入力した返金額（×元の利益率で粗利も按分）が、出金月の売上・粗利からマイナス計上されます。</div>';
   html += '<div class="tag-filters">' +
     [['all','すべて表示'],['contract_pending','成約報告がまだ'],['hire_pending','入社がまだ'],['post_hire_pending','入社後フォロー等がまだ'],['payment_pending','入金確認がまだ'],['completed','すべて終わったもの']]
       .map(([k,l]) => '<span class="tag' + (checklistFilter===k?' on':'') + '" onclick="setChecklistFilter(\''+k+'\')">'+l+'</span>').join('') +
@@ -702,8 +719,11 @@ function renderChecklist(pipelineItems) {
     html += '<td style="color:#1baf7a;font-weight:500">' + (grossProfit != null ? fmtSalary(grossProfit) : '-') + '</td>';
     html += '<td style="color:#6B7A99">' + fmtSalary(revenueForecast) + '</td>';
     html += '<td><input type="date" class="hire-date-input" data-cell="' + p.id + ':payment_date" value="' + (p.payment_date||'') + '" onchange="saveField(\'' + p.id + '\',\'payment_date\',this.value||null)"></td>';
-    html += '<td><div style="display:flex;gap:4px;align-items:center"><input type="date" class="hire-date-input" data-cell="' + p.id + ':refund_date" value="' + (p.refund_date||'') + '" onchange="saveField(\'' + p.id + '\',\'refund_date\',this.value||null)">' +
-      (p.refund_date ? '' : '<button class="icon-btn" title="入社前辞退・早期退職として記録する" onclick="promptRefundDate(\'' + p.id + '\')" style="font-size:11px;color:#b3261e">辞退登録</button>') + '</div></td>';
+    html += '<td><div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">' +
+      '<input type="date" class="hire-date-input" data-cell="' + p.id + ':refund_date" value="' + (p.refund_date||'') + '" onchange="saveField(\'' + p.id + '\',\'refund_date\',this.value||null)">' +
+      (p.refund_type ? '<span style="font-size:10px;color:#b3261e;white-space:nowrap">' + p.refund_type + (p.refund_type==='早期退職' ? '（¥' + Math.round(p.refund_amount||0).toLocaleString() + '）' : '') + '</span>' : '') +
+      '<button class="icon-btn" title="入社前辞退・早期退職として記録する" onclick="promptRefundDate(\'' + p.id + '\')" style="font-size:11px;color:#b3261e">' + (p.refund_date ? '編集' : '辞退登録') + '</button>' +
+      '</div></td>';
 
     CHECKLIST_ITEMS.forEach(it => {
       let dueDate = null;
@@ -726,10 +746,28 @@ function renderChecklist(pipelineItems) {
 }
 
 function promptRefundDate(pipelineId) {
-  const el = document.querySelector('[data-cell="' + pipelineId + ':refund_date"]');
-  if (!el) return;
-  el.focus();
-  if (el.showPicker) { try { el.showPicker(); } catch (e) {} }
+  const p = PIPELINE_DATA.find(x => x.id === pipelineId);
+  if (!p) return;
+  const isEarly = confirm('早期退職ですか？\n\n「OK」＝早期退職（返金額を個別に入力）\n「キャンセル」＝入社前辞退（全額返金）');
+  let refundAmount = null;
+  if (isEarly) {
+    const input = prompt('返金額を入力してください（円・税抜、契約に基づく金額）', p.refund_amount != null ? String(p.refund_amount) : '');
+    if (input === null) return; // キャンセル
+    refundAmount = input ? parseFloat(input) : 0;
+    if (isNaN(refundAmount)) { alert('数値を入力してください'); return; }
+  }
+  const dateInput = prompt('出金日を入力してください（YYYY-MM-DD）', p.refund_date || todayStr);
+  if (!dateInput) return;
+  saveRefundInfo(pipelineId, isEarly ? '早期退職' : '入社前辞退', refundAmount, dateInput);
+}
+
+async function saveRefundInfo(pipelineId, refundType, refundAmount, refundDate) {
+  const payload = { refund_type: refundType, refund_amount: refundAmount, refund_date: refundDate };
+  const { error } = await sb.from('pipeline').update(payload).eq('id', pipelineId);
+  if (error) { alert('保存に失敗しました: ' + error.message); return; }
+  const p = PIPELINE_DATA.find(x => x.id === pipelineId);
+  if (p) Object.assign(p, payload);
+  renderKeepScroll();
 }
 
 async function saveField(pipelineId, key, value) {

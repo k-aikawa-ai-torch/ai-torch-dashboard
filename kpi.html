@@ -1010,18 +1010,20 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
     const leadCount = computeReplyRate(m, memberIds).leadSum;
     const interviews = candidateItems.filter(function(c){return (c.registered_at||'').substring(0,7)===m;}).length;
     const recUnique = recommendCountForMonth(null, m, memberIds, candidateItems);
+    const recDeal = m < SYSTEM_START_MONTH ? memberMonthlySum('recommend_deal', m, memberIds) : countRecommendsDeal(pipelineItems, m);
     const firstI = m < SYSTEM_START_MONTH ? memberMonthlySum('first_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '一次面接', m);
     const finalI = m < SYSTEM_START_MONTH ? memberMonthlySum('final_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '最終面接', m);
     const offerCount = m < SYSTEM_START_MONTH ? memberMonthlySum('offer_deal_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '内定', m);
     const acceptCount = countPhaseReachedInMonth(pipelineItems, '内定承諾', m);
-    return { scoutCount, leadCount, interviews, recUnique, firstI, finalI, offerCount, acceptCount };
+    return { scoutCount, leadCount, interviews, recUnique, recDeal, firstI, finalI, offerCount, acceptCount };
   }
-  // 各指標の間の遷移率
+  // 各指標の間の遷移率（推薦人数の直後の推薦数には遷移率を出さず、一次面接数への遷移率は推薦数を分母にする）
   const FUNNEL_STEPS = [
     { key: 'scoutCount', label: 'スカウト通数' },
     { key: 'leadCount', label: 'リード獲得数' },
     { key: 'interviews', label: '面談数' },
     { key: 'recUnique', label: '推薦人数' },
+    { key: 'recDeal', label: '推薦数', noRate: true },
     { key: 'firstI', label: '一次面接数' },
     { key: 'finalI', label: '最終面接数' },
     { key: 'offerCount', label: '内定数' },
@@ -1030,7 +1032,7 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
   function rowHtml(label, d) {
     let row = '<tr><td>' + label + '</td>';
     FUNNEL_STEPS.forEach(function(step, i) {
-      if (i > 0) {
+      if (i > 0 && !step.noRate) {
         const prevKey = FUNNEL_STEPS[i-1].key;
         const rate = d[prevKey] ? d[step.key]/d[prevKey] : null;
         row += '<td style="color:#6B7A99;font-size:11px">' + fmtPct(rate) + '</td>';
@@ -1043,7 +1045,7 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
   function headerHtml() {
     let h = '<th>期間</th>';
     FUNNEL_STEPS.forEach(function(step, i) {
-      if (i > 0) h += '<th style="font-weight:400;font-size:11px">遷移率</th>';
+      if (i > 0 && !step.noRate) h += '<th style="font-weight:400;font-size:11px"></th>';
       h += '<th>' + step.label + '</th>';
     });
     return h;
@@ -1051,7 +1053,7 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
 
   const monthly = months.map(function(m) { return { m: m, d: metricsForMonth(m) }; });
   const monthCount = monthly.length || 1;
-  const totalSum = { scoutCount:0, leadCount:0, interviews:0, recUnique:0, firstI:0, finalI:0, offerCount:0, acceptCount:0 };
+  const totalSum = { scoutCount:0, leadCount:0, interviews:0, recUnique:0, recDeal:0, firstI:0, finalI:0, offerCount:0, acceptCount:0 };
   monthly.forEach(function(row) { Object.keys(totalSum).forEach(function(k) { totalSum[k] += row.d[k]; }); });
   // 1ヶ月あたり平均（率は合計件数から再計算するのでtotalSumの比率と一致する）
   const avg = {};
@@ -1059,7 +1061,7 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
 
   let html = '<div class="section-title">ファネル件数・遷移率・リスク（全期間）</div>';
   html += '<div style="overflow-x:auto"><table class="media-summary-table"><thead><tr>' + headerHtml() + '</tr></thead><tbody>' +
-    rowHtml('全期間平均（' + months[months.length-1] + '〜' + months[0] + '・1ヶ月あたり）', avg) + '</tbody></table></div>';
+    rowHtml('全期間平均', avg) + '</tbody></table></div>';
 
   html += '<div class="monthly-scroll-wrap" style="max-height:280px"><table class="media-table"><thead><tr>' + headerHtml() + '</tr></thead><tbody>';
   monthly.forEach(function(row) { html += rowHtml(row.m, row.d); });
