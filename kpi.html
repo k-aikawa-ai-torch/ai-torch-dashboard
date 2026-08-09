@@ -158,6 +158,7 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
   <div class="modal-box">
     <div class="modal-header"><span id="pt-modal-title">フェーズ別目標を編集</span><button class="modal-close" onclick="closePhaseTargetModal()">×</button></div>
     <div class="form-group"><label>スカウト通数目標（件）</label><input id="pt-scout" type="number"></div>
+    <div class="form-group"><label>リード獲得数目標（件）</label><input id="pt-lead" type="number"></div>
     <div class="form-group"><label>面談目標（件）</label><input id="pt-interview" type="number"></div>
     <div class="form-group"><label>推薦目標（件・書類選考目標を兼ねる）</label><input id="pt-recommend" type="number"></div>
     <div class="form-group"><label>カジュアル面談目標（件）</label><input id="pt-casual" type="number"></div>
@@ -556,6 +557,7 @@ function render() {
 
   // 目標値（フェーズ別）と、そこから自動算出した遷移率目標
   const tScout = getTargetSum('scout_target', currentMonth, memberIds);
+  const tLead = getTargetSum('lead_target', currentMonth, memberIds);
   const tInterview = getTargetSum('interview_target', currentMonth, memberIds);
   const tRecommend = getTargetSum('recommend_target', currentMonth, memberIds);
   const tCasual = getTargetSum('casual_target', currentMonth, memberIds);
@@ -567,6 +569,9 @@ function render() {
   const tFirstToFinalRate = tFirst ? tFinal/tFirst : null;
   const tFinalToOfferRate = tFinal ? tOffer/tFinal : null;
   const tAcceptRate = tOffer ? tAccept/tOffer : null;
+  const tScoutToLeadRate = tScout ? tLead/tScout : null;
+  const tLeadToInterviewRate = tLead ? tInterview/tLead : null;
+  const leadToInterviewRate = leadCount ? interviews/leadCount : null;
 
   html += '<div class="section-block">';
   html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">当月ファネル（スカウト〜内定承諾）</span><span class="sub">' + currentMonth + '・下段は目標値</span></div>';
@@ -579,8 +584,8 @@ function render() {
   html += '</div>';
   html += renderFunnel([
     { label: 'スカウト通数', value: scoutCount + '件', target: tScout || null },
-    { label: 'リード獲得数', value: leadCount + '件', rate: replyRateInfo.rate },
-    { label: '面談', value: interviews + '件', target: tInterview || null },
+    { label: 'リード獲得数', value: leadCount + '件', rate: replyRateInfo.rate, targetRate: tScoutToLeadRate, target: tLead || null },
+    { label: '面談', value: interviews + '件', rate: leadToInterviewRate, targetRate: tLeadToInterviewRate, target: tInterview || null },
     { label: '推薦', value: dealUniqueLabel(recommendActual, recUnique), rate: interviewToRecommendRate, target: tRecommend || null },
     { label: 'カジュアル面談+一次面接', value: dealUniqueLabel(casualOrFirstDeal, casualOrFirstUnique), rate: docPassRate, targetRate: tDocPassRate, target: (tCasual+tFirst) || null },
     { label: '最終面接', value: dealUniqueLabel(finalDeal, finalUnique), rate: firstToFinalRate, targetRate: tFirstToFinalRate, target: tFinal || null },
@@ -1000,14 +1005,7 @@ function memberMonthlySum(field, ym, memberIds) {
 function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
   const months = allMonthsInRange(DATA_START_MONTH, currentMonth).slice().reverse(); // 新しい月が上・全期間（枠内スクロールで初期表示は直近6ヶ月分の高さ）
 
-  let html = '<div class="section-title">ファネル件数・遷移率・リスク（全期間）</div>';
-  html += '<div class="monthly-scroll-wrap" style="max-height:280px"><table class="media-table"><thead><tr>' +
-    '<th>月</th><th>面談数</th><th>推薦件数（延べ）</th><th>推薦人数</th>' +
-    '<th>一次面接</th><th>一次⇒最終率</th><th>最終面接</th><th>最終⇒内定率</th><th>内定（延べ）</th>' +
-    '<th>内定承諾率</th><th>内定承諾</th><th>入社前辞退数</th><th>早期退職数</th>' +
-    '</tr></thead><tbody>';
-
-  months.forEach(function(m) {
+  function metricsForMonth(m) {
     const interviews = candidateItems.filter(function(c){return (c.registered_at||'').substring(0,7)===m;}).length;
     const recDeal = m < SYSTEM_START_MONTH ? memberMonthlySum('recommend_deal', m, memberIds) : countRecommendsDeal(pipelineItems, m);
     const recUnique = recommendCountForMonth(null, m, memberIds, candidateItems);
@@ -1017,14 +1015,36 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
     const acceptCount = countPhaseReachedInMonth(pipelineItems, '内定承諾', m);
     const withdrawal = memberIds.reduce(function(s,mid){ const r=RISK_INPUTS.find(function(x){return x.member_id===mid&&x.year_month===m;}); return s+((r&&r.withdrawal_count)||0); },0);
     const earlyLeave = memberIds.reduce(function(s,mid){ const r=RISK_INPUTS.find(function(x){return x.member_id===mid&&x.year_month===m;}); return s+((r&&r.early_leave_count)||0); },0);
+    return { interviews, recDeal, recUnique, firstI, finalI, offerCount, acceptCount, withdrawal, earlyLeave };
+  }
+  function rowHtml(label, d) {
+    return '<tr><td>' + label + '</td><td>' + d.interviews + '</td><td>' + d.recDeal + '</td><td>' + d.recUnique + '</td>' +
+      '<td>' + d.firstI + '</td>' +
+      '<td>' + fmtPct(d.firstI ? d.finalI/d.firstI : null) + '</td><td>' + d.finalI + '</td>' +
+      '<td>' + fmtPct(d.finalI ? d.offerCount/d.finalI : null) + '</td><td>' + d.offerCount + '</td>' +
+      '<td>' + fmtPct(d.offerCount ? d.acceptCount/d.offerCount : null) + '</td><td>' + d.acceptCount + '</td>' +
+      '<td>' + d.withdrawal + '</td><td>' + d.earlyLeave + '</td></tr>';
+  }
 
-    html += '<tr><td>' + m + '</td><td>' + interviews + '</td><td>' + recDeal + '</td><td>' + recUnique + '</td>' +
-      '<td>' + firstI + '</td>' +
-      '<td>' + fmtPct(firstI ? finalI/firstI : null) + '</td><td>' + finalI + '</td>' +
-      '<td>' + fmtPct(finalI ? offerCount/finalI : null) + '</td><td>' + offerCount + '</td>' +
-      '<td>' + fmtPct(offerCount ? acceptCount/offerCount : null) + '</td><td>' + acceptCount + '</td>' +
-      '<td>' + withdrawal + '</td><td>' + earlyLeave + '</td></tr>';
+  const monthly = months.map(function(m) { return { m: m, d: metricsForMonth(m) }; });
+  const total = { interviews:0, recDeal:0, recUnique:0, firstI:0, finalI:0, offerCount:0, acceptCount:0, withdrawal:0, earlyLeave:0 };
+  monthly.forEach(function(row) {
+    Object.keys(total).forEach(function(k) { total[k] += row.d[k]; });
   });
+
+  let html = '<div class="section-title">ファネル件数・遷移率・リスク（全期間）</div>';
+  html += '<table class="media-summary-table"><thead><tr>' +
+    '<th>期間</th><th>面談数</th><th>推薦件数（延べ）</th><th>推薦人数</th>' +
+    '<th>一次面接</th><th>一次⇒最終率</th><th>最終面接</th><th>最終⇒内定率</th><th>内定（延べ）</th>' +
+    '<th>内定承諾率</th><th>内定承諾</th><th>入社前辞退数</th><th>早期退職数</th>' +
+    '</tr></thead><tbody>' + rowHtml('全期間合計（' + months[months.length-1] + '〜' + months[0] + '）', total) + '</tbody></table>';
+
+  html += '<div class="monthly-scroll-wrap" style="max-height:280px"><table class="media-table"><thead><tr>' +
+    '<th>月</th><th>面談数</th><th>推薦件数（延べ）</th><th>推薦人数</th>' +
+    '<th>一次面接</th><th>一次⇒最終率</th><th>最終面接</th><th>最終⇒内定率</th><th>内定（延べ）</th>' +
+    '<th>内定承諾率</th><th>内定承諾</th><th>入社前辞退数</th><th>早期退職数</th>' +
+    '</tr></thead><tbody>';
+  monthly.forEach(function(row) { html += rowHtml(row.m, row.d); });
   html += '</tbody></table></div>';
 
   return html;
@@ -1402,6 +1422,7 @@ function openPhaseTargetModal(memberId) {
   document.getElementById('pt-modal-title').textContent = memberName + ' ' + currentMonth + ' のフェーズ別目標';
   const t = getTarget(memberId, currentMonth);
   document.getElementById('pt-scout').value = t ? (t.scout_target ?? '') : '';
+  document.getElementById('pt-lead').value = t ? (t.lead_target ?? '') : '';
   document.getElementById('pt-interview').value = t ? (t.interview_target ?? '') : '';
   document.getElementById('pt-recommend').value = t ? (t.recommend_target ?? '') : '';
   document.getElementById('pt-casual').value = t ? (t.casual_target ?? '') : '';
@@ -1420,6 +1441,7 @@ async function savePhaseTarget() {
     member_id: editingPhaseTargetMemberId,
     year_month: currentMonth,
     scout_target: g('pt-scout'),
+    lead_target: g('pt-lead'),
     interview_target: g('pt-interview'),
     recommend_target: g('pt-recommend'),
     casual_target: g('pt-casual'),
