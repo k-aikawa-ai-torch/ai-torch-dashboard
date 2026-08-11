@@ -57,6 +57,12 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 .sort-th{cursor:pointer;user-select:none;white-space:nowrap}
 .sort-arrow{margin-left:3px;font-size:9px;color:#c0c5cf}
 .sort-arrow.active{color:#0D40D9}
+.filter-btn{height:34px;padding:0 12px;border:1px solid #DEE7F7;border-radius:8px;background:#fff;cursor:pointer;font-size:13px;color:#14213D}
+.col-filter-icon{margin-left:4px;font-size:11px;cursor:pointer;color:#c0c5cf;padding:1px 3px;border-radius:4px}
+.col-filter-icon.active{color:#0D40D9;background:#eaf0ff}
+.col-filter-popup{position:absolute;top:100%;left:0;margin-top:4px;background:#fff;border:1px solid #DEE7F7;border-radius:8px;box-shadow:0 4px 16px rgba(20,33,61,0.15);padding:10px;z-index:10;white-space:nowrap;cursor:default}
+.col-filter-popup .form-group{margin-bottom:6px}
+.col-filter-popup .form-group:last-child{margin-bottom:0}
 .tag-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .tag{padding:5px 12px;border:1px solid #DEE7F7;border-radius:20px;font-size:12px;cursor:pointer;background:#fff;color:#6B7A99;white-space:nowrap;transition:all 0.15s;user-select:none}
 .tag.on{background:#14213D;color:#fff;border-color:#14213D}
@@ -330,6 +336,12 @@ function setChecklistMemberFilter(v) { checklistMemberFilter = v; render(); }
 function setChecklistCompanyFilter(v) { checklistCompanyFilter = v; renderKeepScroll(); }
 function setChecklistHireFrom(v) { checklistHireFrom = v; renderKeepScroll(); }
 function setChecklistHireTo(v) { checklistHireTo = v; renderKeepScroll(); }
+let checklistFilterPopupKey = null;
+function toggleChecklistFilterPopup(key, ev) {
+  ev.stopPropagation();
+  checklistFilterPopupKey = checklistFilterPopupKey === key ? null : key;
+  renderKeepScroll();
+}
 function setChecklistPaymentFrom(v) { checklistPaymentFrom = v; renderKeepScroll(); }
 function setChecklistPaymentTo(v) { checklistPaymentTo = v; renderKeepScroll(); }
 function setChecklistSalaryFrom(v) { checklistSalaryFrom = v; renderKeepScroll(); }
@@ -546,19 +558,9 @@ function render() {
       '</select></div>';
     html += '</div>';
   }
-  html += '<div class="form-row" style="margin-bottom:10px">';
+  html += '<div class="form-row" style="margin-bottom:10px;align-items:center">';
   html += '<div class="form-group"><label>企業名で絞る</label><input type="text" id="chk-company-filter" placeholder="部分一致・Enterで確定" value="' + checklistCompanyFilter.replace(/"/g,'&quot;') + '" onchange="setChecklistCompanyFilter(this.value)"></div>';
-  html += '<div class="form-group"><label>入社日（から）</label><input type="date" id="chk-hire-from" value="' + checklistHireFrom + '" onchange="setChecklistHireFrom(this.value)"></div>';
-  html += '<div class="form-group"><label>入社日（まで）</label><input type="date" id="chk-hire-to" value="' + checklistHireTo + '" onchange="setChecklistHireTo(this.value)"></div>';
-  html += '<div class="form-group"><label>入金日（から）</label><input type="date" id="chk-payment-from" value="' + checklistPaymentFrom + '" onchange="setChecklistPaymentFrom(this.value)"></div>';
-  html += '<div class="form-group"><label>入金日（まで）</label><input type="date" id="chk-payment-to" value="' + checklistPaymentTo + '" onchange="setChecklistPaymentTo(this.value)"></div>';
-  html += '<div class="form-group"><label>理論年収（円・から）</label><input type="number" id="chk-salary-from" value="' + checklistSalaryFrom + '" onchange="setChecklistSalaryFrom(this.value)"></div>';
-  html += '<div class="form-group"><label>理論年収（円・まで）</label><input type="number" id="chk-salary-to" value="' + checklistSalaryTo + '" onchange="setChecklistSalaryTo(this.value)"></div>';
-  html += '<div class="form-group"><label>売上（円・から）</label><input type="number" id="chk-revenue-from" value="' + checklistRevenueFrom + '" onchange="setChecklistRevenueFrom(this.value)"></div>';
-  html += '<div class="form-group"><label>売上（円・まで）</label><input type="number" id="chk-revenue-to" value="' + checklistRevenueTo + '" onchange="setChecklistRevenueTo(this.value)"></div>';
-  html += '<div class="form-group"><label>粗利（円・から）</label><input type="number" id="chk-profit-from" value="' + checklistProfitFrom + '" onchange="setChecklistProfitFrom(this.value)"></div>';
-  html += '<div class="form-group"><label>粗利（円・まで）</label><input type="number" id="chk-profit-to" value="' + checklistProfitTo + '" onchange="setChecklistProfitTo(this.value)"></div>';
-  html += '<button class="edit-toggle-btn" onclick="clearChecklistFilters()">絞り込みをクリア</button>';
+  html += '<button class="filter-btn" type="button" onclick="clearChecklistFilters()">全クリア</button>';
   html += '</div>';
   html += renderChecklist(myPipeline);
   html += '</div>';
@@ -664,7 +666,7 @@ const CHECKLIST_ITEMS = [
   { key: 'checklist_invoice', label: '請求書発行', due: 'hire' },
   { key: 'checklist_company_confirm', label: '企業入社確認', due: 'hire' },
   { key: 'checklist_media_report', label: '媒体入社報告', due: 'hire' },
-  { key: 'checklist_media_payment', label: '媒体支払い', due: 'hire' },
+  { key: 'checklist_media_payment', label: '媒体支払い', due: 'payment' },
   { key: 'checklist_payment_confirm', label: '入金確認', due: 'payment' },
 ];
 
@@ -680,7 +682,7 @@ function renderChecklist(pipelineItems) {
   if (!targets.length) return '<div style="color:#9aa3b8;font-size:12px">対象の案件がまだありません</div>';
 
   const todayStr = today();
-  const POST_HIRE_KEYS = ['checklist_candidate_followup','checklist_invoice','checklist_company_confirm','checklist_media_report','checklist_media_payment'];
+  const POST_HIRE_KEYS = ['checklist_candidate_followup','checklist_invoice','checklist_company_confirm','checklist_media_report'];
 
   // ===== 絞り込み =====
   if (checklistMemberFilter) targets = targets.filter(p => p.member_id === checklistMemberFilter);
@@ -698,7 +700,7 @@ function renderChecklist(pipelineItems) {
   if (checklistFilter === 'contract_pending') targets = targets.filter(p => !p.checklist_contract_report);
   else if (checklistFilter === 'hire_pending') targets = targets.filter(p => !p.hire_date || p.hire_date > todayStr);
   else if (checklistFilter === 'post_hire_pending') targets = targets.filter(p => p.hire_date && p.hire_date <= todayStr && POST_HIRE_KEYS.some(k => !p[k]));
-  else if (checklistFilter === 'payment_pending') targets = targets.filter(p => !p.checklist_payment_confirm);
+  else if (checklistFilter === 'payment_pending') targets = targets.filter(p => !p.checklist_payment_confirm || !p.checklist_media_payment);
   else if (checklistFilter === 'completed') targets = targets.filter(p => p.hire_date && CHECKLIST_ITEMS.every(it => p[it.key]));
 
   if (!targets.length) return '<div style="color:#9aa3b8;font-size:12px">該当する案件がありません</div>';
@@ -731,10 +733,30 @@ function renderChecklist(pipelineItems) {
     return checklistSortDir * (va - vb);
   });
 
+  const FILTER_CONFIGS = {
+    hire_date: { type: 'date', label: '入社日', fromVal: checklistHireFrom, toVal: checklistHireTo, fromFn: 'setChecklistHireFrom', toFn: 'setChecklistHireTo' },
+    payment_date: { type: 'date', label: '入金日', fromVal: checklistPaymentFrom, toVal: checklistPaymentTo, fromFn: 'setChecklistPaymentFrom', toFn: 'setChecklistPaymentTo' },
+    theoretical_salary: { type: 'number', label: '理論年収（円）', fromVal: checklistSalaryFrom, toVal: checklistSalaryTo, fromFn: 'setChecklistSalaryFrom', toFn: 'setChecklistSalaryTo' },
+    revenue: { type: 'number', label: '売上（円）', fromVal: checklistRevenueFrom, toVal: checklistRevenueTo, fromFn: 'setChecklistRevenueFrom', toFn: 'setChecklistRevenueTo' },
+    profit: { type: 'number', label: '粗利（円）', fromVal: checklistProfitFrom, toVal: checklistProfitTo, fromFn: 'setChecklistProfitFrom', toFn: 'setChecklistProfitTo' },
+  };
   function th(key, label) {
     const active = checklistSortKey === key;
-    return '<th class="sort-th" onclick="setChecklistSort(\'' + key + '\')">' + label +
-      '<span class="sort-arrow' + (active ? ' active' : '') + '">' + (active ? (checklistSortDir===1?'▲':'▼') : '↕') + '</span></th>';
+    let filterIcon = '';
+    const fc = FILTER_CONFIGS[key];
+    if (fc) {
+      const isFiltered = fc.fromVal || fc.toVal;
+      const open = checklistFilterPopupKey === key;
+      filterIcon = '<span class="col-filter-icon' + (isFiltered ? ' active' : '') + '" onclick="toggleChecklistFilterPopup(\'' + key + '\', event)" title="絞り込み">▾</span>';
+      if (open) {
+        filterIcon += '<div class="col-filter-popup" onclick="event.stopPropagation()">' +
+          '<div class="form-group"><label>' + fc.label + '（から）</label><input type="' + fc.type + '" value="' + fc.fromVal + '" onchange="' + fc.fromFn + '(this.value)"></div>' +
+          '<div class="form-group"><label>' + fc.label + '（まで）</label><input type="' + fc.type + '" value="' + fc.toVal + '" onchange="' + fc.toFn + '(this.value)"></div>' +
+          '</div>';
+      }
+    }
+    return '<th class="sort-th" style="position:relative"><span onclick="setChecklistSort(\'' + key + '\')">' + label +
+      '<span class="sort-arrow' + (active ? ' active' : '') + '">' + (active ? (checklistSortDir===1?'▲':'▼') : '↕') + '</span></span>' + filterIcon + '</th>';
   }
   let html = '<div class="checklist-scroll-wrap" id="checklist-scroll-wrap"><table class="checklist-table">' +
     '<colgroup><col style="width:90px"><col style="width:140px"><col style="width:60px"><col style="width:140px">' +
@@ -919,6 +941,11 @@ async function toggleChecklistItem(pipelineId, key, checked) {
   if (p) p[key] = checked;
   renderKeepScroll();
 }
+
+// 列フィルタのポップアップを、外側クリックで閉じる
+document.addEventListener('click', function() {
+  if (checklistFilterPopupKey) { checklistFilterPopupKey = null; renderKeepScroll(); }
+});
 </script>
 </body>
 </html>
