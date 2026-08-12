@@ -404,11 +404,12 @@ function groupMonthsByYearAndTerm(monthsAsc) {
 function renderMonthlyHistoryTable() {
   const now = new Date();
   const currentYm = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+  const fyEndYm = getTermInfo(currentYm).yearMonths[11]; // 今の会計年度の最終月（まだ来ていない月の入社日も拾えるように、ここまでは一覧に含める）
   const monthsAsc = [];
   for (let d = new Date(2025, 1, 1); ; d.setMonth(d.getMonth() + 1)) {
     const ym = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
     monthsAsc.push(ym);
-    if (ym >= currentYm) break;
+    if (ym >= fyEndYm) break;
   }
   const years = groupMonthsByYearAndTerm(monthsAsc).reverse(); // 新しい年度から順に
 
