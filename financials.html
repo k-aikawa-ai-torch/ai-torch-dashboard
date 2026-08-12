@@ -85,6 +85,7 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 <div id="app">
   <nav class="app-sidebar">
     <a class="sb-logo" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/index.html"><img src="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/assets/torch-blue-circle.jpg" alt="AI torch"></a>
+    <div class="sb-item" onclick="openGlobalSearch()"><span class="sb-icon">🔍</span><span class="sb-label">検索</span><span class="sb-search-hint">Ctrl+K</span></div>
     <a class="sb-item" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/index.html"><span class="sb-icon">🏠</span><span class="sb-label">Home</span></a>
     <a class="sb-item" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/companies.html"><span class="sb-icon">🏢</span><span class="sb-label">企業検索</span></a>
     <a class="sb-item" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/candidates.html"><span class="sb-icon">👤</span><span class="sb-label">候補者管理</span></a>
@@ -949,5 +950,6 @@ document.addEventListener('click', function() {
   if (checklistFilterPopupKey) { checklistFilterPopupKey = null; renderKeepScroll(); }
 });
 </script>
+<script src="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/assets/global-search.js"></script>
 </body>
 </html>

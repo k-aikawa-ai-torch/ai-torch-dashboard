@@ -147,6 +147,7 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 <div id="app">
   <nav class="app-sidebar">
     <a class="sb-logo" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/index.html"><img src="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/assets/torch-blue-circle.jpg" alt="AI torch"></a>
+    <div class="sb-item" onclick="openGlobalSearch()"><span class="sb-icon">🔍</span><span class="sb-label">検索</span><span class="sb-search-hint">Ctrl+K</span></div>
     <a class="sb-item" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/index.html"><span class="sb-icon">🏠</span><span class="sb-label">Home</span></a>
     <a class="sb-item" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/companies.html"><span class="sb-icon">🏢</span><span class="sb-label">企業検索</span></a>
     <a class="sb-item" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/candidates.html"><span class="sb-icon">👤</span><span class="sb-label">候補者管理</span></a>
@@ -209,6 +210,7 @@ let MEDIA_FEE_RATES = [];
 let currentMember = '全員';
 let currentMonth = '';
 let editingTargetMemberId = null;
+let targetModalDirty = false;
 let editingTargetMonths = [];
 
 const MEMBER_MAP = {'相川':'aikawa_kenta','永井':'nagai_yudai','會澤':'aizawa_yuma'};
@@ -1116,6 +1118,7 @@ function openTargetModal(memberId, month) {
   tableHtml += '</tbody></table>';
   document.getElementById('target-modal-table').innerHTML = tableHtml;
   document.getElementById('target-save-msg').textContent = '';
+  targetModalDirty = false;
   document.getElementById('target-modal').classList.add('open');
 }
 
@@ -1135,17 +1138,25 @@ async function saveTarget() {
   if (error) { alert('保存に失敗しました: ' + error.message); return; }
 
   document.getElementById('target-save-msg').textContent = '✅ 保存しました';
+  targetModalDirty = false;
   const { data: targets } = await sb.from('targets').select('*,members(name,display_name)');
   TARGETS = targets || [];
   setTimeout(function() { closeTargetModal(); render(); }, 600);
 }
 
 function closeTargetModal() {
+  if (targetModalDirty && !confirm('保存されていない変更があります。保存せずに閉じてよいですか？')) return;
   document.getElementById('target-modal').classList.remove('open');
+  targetModalDirty = false;
 }
 document.getElementById('target-modal').addEventListener('click', function(e) {
   if (e.target === document.getElementById('target-modal')) closeTargetModal();
 });
+document.getElementById('target-modal-table').addEventListener('input', function() { targetModalDirty = true; });
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && document.getElementById('target-modal').classList.contains('open')) closeTargetModal();
+});
 </script>
+<script src="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/assets/global-search.js"></script>
 </body>
 </html>

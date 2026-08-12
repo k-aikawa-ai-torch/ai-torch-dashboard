@@ -104,6 +104,7 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 <div id="app">
   <nav class="app-sidebar">
     <a class="sb-logo" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/index.html"><img src="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/assets/torch-blue-circle.jpg" alt="AI torch"></a>
+    <div class="sb-item" onclick="openGlobalSearch()"><span class="sb-icon">🔍</span><span class="sb-label">検索</span><span class="sb-search-hint">Ctrl+K</span></div>
     <a class="sb-item" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/index.html"><span class="sb-icon">🏠</span><span class="sb-label">Home</span></a>
     <a class="sb-item" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/companies.html"><span class="sb-icon">🏢</span><span class="sb-label">企業検索</span></a>
     <a class="sb-item" href="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/candidates.html"><span class="sb-icon">👤</span><span class="sb-label">候補者管理</span></a>
@@ -1364,6 +1365,9 @@ function openMediaModal(source) {
   document.getElementById('media-modal').classList.add('open');
 }
 function closeMediaModal() { document.getElementById('media-modal').classList.remove('open'); }
+document.getElementById('media-modal').addEventListener('click', function(e) {
+  if (e.target === document.getElementById('media-modal')) closeMediaModal();
+});
 
 // ============ カスタム指標 ============
 function renderCustomMetrics(pipelineItems, candidateItems) {
@@ -1385,6 +1389,9 @@ function renderCustomMetrics(pipelineItems, candidateItems) {
 }
 
 let editingPhaseTargetMemberId = null;
+let mediaSettingsModalDirty = false;
+let phaseTargetModalDirty = false;
+let customModalDirty = false;
 // ============ 集計対象媒体の設定（スカウト通数・返信率） ============
 function openMediaSettingsModal() {
   if (!ME) { alert('ログイン情報が取得できませんでした'); return; }
@@ -1397,8 +1404,19 @@ function openMediaSettingsModal() {
     '<span class="tag' + (excludeSelected.has(s)?' on':'') + '" data-media="' + s + '" onclick="this.classList.toggle(\'on\')">' + s + '</span>'
   ).join('');
   document.getElementById('media-settings-modal').classList.add('open');
+  mediaSettingsModalDirty = false;
 }
-function closeMediaSettingsModal() { document.getElementById('media-settings-modal').classList.remove('open'); }
+function closeMediaSettingsModal() {
+  if (mediaSettingsModalDirty && !confirm('保存されていない変更があります。保存せずに閉じてよいですか？')) return;
+  document.getElementById('media-settings-modal').classList.remove('open');
+  mediaSettingsModalDirty = false;
+}
+document.getElementById('media-settings-modal').addEventListener('click', function(e) {
+  if (e.target === document.getElementById('media-settings-modal')) closeMediaSettingsModal();
+});
+document.getElementById('media-settings-modal').addEventListener('click', function(e) {
+  if (e.target.classList && e.target.classList.contains('tag')) mediaSettingsModalDirty = true;
+});
 
 async function saveMediaSettings() {
   const scoutMedia = Array.from(document.querySelectorAll('#ms-scout-media .tag.on')).map(el => el.dataset.media);
@@ -1409,6 +1427,7 @@ async function saveMediaSettings() {
   ME.reply_rate_excluded_media = excludeMedia;
   const m = MEMBERS.find(x => x.id === ME.id);
   if (m) { m.scout_count_media = scoutMedia; m.reply_rate_excluded_media = excludeMedia; }
+  mediaSettingsModalDirty = false;
   closeMediaSettingsModal();
   render();
 }
@@ -1452,9 +1471,18 @@ function openPhaseTargetModal(memberId) {
   document.getElementById('pt-offer').value = t ? (t.offer_target ?? '') : '';
   document.getElementById('pt-accept').value = t ? (t.accept_target ?? '') : '';
   document.getElementById('pt-save-msg').textContent = '';
+  phaseTargetModalDirty = false;
   document.getElementById('phase-target-modal').classList.add('open');
 }
-function closePhaseTargetModal() { document.getElementById('phase-target-modal').classList.remove('open'); }
+function closePhaseTargetModal() {
+  if (phaseTargetModalDirty && !confirm('保存されていない変更があります。保存せずに閉じてよいですか？')) return;
+  document.getElementById('phase-target-modal').classList.remove('open');
+  phaseTargetModalDirty = false;
+}
+document.getElementById('phase-target-modal').addEventListener('click', function(e) {
+  if (e.target === document.getElementById('phase-target-modal')) closePhaseTargetModal();
+});
+document.getElementById('phase-target-modal').addEventListener('input', function() { phaseTargetModalDirty = true; });
 
 async function savePhaseTarget() {
   const g = id => { const v = document.getElementById(id).value; return v ? parseInt(v) : null; };
@@ -1475,6 +1503,7 @@ async function savePhaseTarget() {
   const { error } = await sb.from('targets').upsert(payload, { onConflict: 'member_id,year_month' });
   if (error) { alert('保存に失敗しました: ' + error.message); return; }
   document.getElementById('pt-save-msg').textContent = '✅ 保存しました';
+  phaseTargetModalDirty = false;
   const { data } = await sb.from('targets').select('*,members(name,display_name)');
   TARGETS = data || [];
   setTimeout(() => { closePhaseTargetModal(); render(); }, 500);
@@ -1488,8 +1517,18 @@ function openCustomModal() {
   document.getElementById('cm-name').value = '';
   document.getElementById('cm-multiplier').value = 100;
   document.getElementById('custom-modal').classList.add('open');
+  customModalDirty = false;
 }
-function closeCustomModal() { document.getElementById('custom-modal').classList.remove('open'); }
+function closeCustomModal() {
+  if (customModalDirty && !confirm('保存されていない変更があります。保存せずに閉じてよいですか？')) return;
+  document.getElementById('custom-modal').classList.remove('open');
+  customModalDirty = false;
+}
+document.getElementById('custom-modal').addEventListener('click', function(e) {
+  if (e.target === document.getElementById('custom-modal')) closeCustomModal();
+});
+document.getElementById('custom-modal').addEventListener('input', function() { customModalDirty = true; });
+document.getElementById('custom-modal').addEventListener('change', function() { customModalDirty = true; });
 
 async function saveCustomMetric() {
   const name = document.getElementById('cm-name').value.trim();
@@ -1507,6 +1546,7 @@ async function saveCustomMetric() {
   if (error) { alert('保存に失敗しました: ' + error.message); return; }
   const { data } = await sb.from('custom_metrics').select('*,members(name,display_name)');
   CUSTOM_METRICS = data || [];
+  customModalDirty = false;
   closeCustomModal();
   render();
 }
@@ -1518,6 +1558,14 @@ async function deleteCustomMetric(id) {
   CUSTOM_METRICS = CUSTOM_METRICS.filter(c => c.id !== id);
   render();
 }
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('media-modal').classList.contains('open')) { closeMediaModal(); return; }
+  if (document.getElementById('media-settings-modal').classList.contains('open')) { closeMediaSettingsModal(); return; }
+  if (document.getElementById('phase-target-modal').classList.contains('open')) { closePhaseTargetModal(); return; }
+  if (document.getElementById('custom-modal').classList.contains('open')) { closeCustomModal(); return; }
+});
 </script>
+<script src="https://k-aikawa-ai-torch.github.io/ai-torch-company-search/assets/global-search.js"></script>
 </body>
 </html>
