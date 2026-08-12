@@ -123,7 +123,7 @@ const MEMBER_NAMES = {'aikawa_kenta':'相川','nagai_yudai':'永井','aizawa_yum
 const ACCEPT_PHASES = ['内定承諾','入社待ち','入社済み'];
 const PIPELINE_PHASE_LIST = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾','入社待ち','入社済み'];
 
-let MEMBERS = [], PIPELINE_DATA = [], CANDIDATE_DATA = [], PHASE_HISTORY = [], OTHER_REVENUE = [];
+let MEMBERS = [], SALES_MEMBERS = [], PIPELINE_DATA = [], CANDIDATE_DATA = [], PHASE_HISTORY = [], OTHER_REVENUE = [];
 let currentMember = '全員';
 let plSelectedMonth = new Date().toISOString().substring(0,7);
 let checklistSortKey = 'accept_date';
@@ -182,6 +182,7 @@ async function loadData() {
   ]);
 
   MEMBERS = members || [];
+  SALES_MEMBERS = MEMBERS.filter(m => !!MEMBER_NAMES[m.name]); // アシスタント等、売上を作らないメンバーを集計対象から除外
   CANDIDATE_DATA = candidates || [];
   PIPELINE_DATA = pipeline || [];
   PHASE_HISTORY = phaseHistory || [];
@@ -207,7 +208,7 @@ function setMember(m, el) {
 }
 
 function filterByMemberName(arr, memberName) {
-  if (memberName === '全員') return arr;
+  if (memberName === '全員') return arr.filter(x => !x.members || !!MEMBER_NAMES[x.members.name]); // アシスタント等、売上を作らないメンバーは全員集計から除外
   const key = MEMBER_MAP[memberName];
   return arr.filter(x => x.members && x.members.name === key);
 }
@@ -430,8 +431,8 @@ function renderMonthlyHistoryTable() {
         g.months.slice().reverse().forEach(function(m) {
           const total = computePLForMonth(pipelineScope, memberIdsScope, m);
           if (showMemberBreakdown) {
-            html += '<tr style="font-weight:600;background:#f9f9f7"><td>' + m + '　（' + MEMBERS.length + '人合計）</td>' + plCells(total) + '</tr>';
-            MEMBERS.forEach(function(mem) {
+            html += '<tr style="font-weight:600;background:#f9f9f7"><td>' + m + '　（' + SALES_MEMBERS.length + '人合計）</td>' + plCells(total) + '</tr>';
+            SALES_MEMBERS.forEach(function(mem) {
               const mp = PIPELINE_DATA.filter(p => p.members && p.members.name === mem.name);
               const d = computePLForMonth(mp, [mem.id], m);
               html += '<tr><td style="padding-left:24px;color:#6B7A99">' + (mem.display_name || MEMBER_NAMES[mem.name] || mem.name) + '</td>' + plCells(d) + '</tr>';
@@ -445,7 +446,7 @@ function renderMonthlyHistoryTable() {
   }
 
   if (currentMember === '全員') {
-    renderScope(PIPELINE_DATA, MEMBERS.map(x => x.id), true);
+    renderScope(filterByMemberName(PIPELINE_DATA, '全員'), SALES_MEMBERS.map(x => x.id), true);
   } else {
     const memberIds = [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
     renderScope(filterByMemberName(PIPELINE_DATA, currentMember), memberIds, false);
@@ -490,7 +491,7 @@ function renderKeepScroll() {
 function render() {
   const el = document.getElementById('content');
   const myPipeline = filterByMemberName(PIPELINE_DATA, currentMember);
-  const memberIds = currentMember === '全員' ? MEMBERS.map(m=>m.id) : [MEMBERS.find(m=>m.name===MEMBER_MAP[currentMember])?.id];
+  const memberIds = currentMember === '全員' ? SALES_MEMBERS.map(m=>m.id) : [MEMBERS.find(m=>m.name===MEMBER_MAP[currentMember])?.id];
 
   let html = '';
 
@@ -555,7 +556,7 @@ function render() {
     html += '<div class="form-row" style="margin-bottom:10px">';
     html += '<div class="form-group"><label>担当で絞る</label><select id="chk-member-filter" onchange="setChecklistMemberFilter(this.value)">' +
       '<option value=""' + (checklistMemberFilter===''?' selected':'') + '>全員</option>' +
-      MEMBERS.map(m => '<option value="'+m.id+'"'+(checklistMemberFilter===m.id?' selected':'')+'>'+(m.display_name||MEMBER_NAMES[m.name])+'</option>').join('') +
+      SALES_MEMBERS.map(m => '<option value="'+m.id+'"'+(checklistMemberFilter===m.id?' selected':'')+'>'+(m.display_name||MEMBER_NAMES[m.name])+'</option>').join('') +
       '</select></div>';
     html += '</div>';
   }
@@ -576,7 +577,7 @@ function render() {
 }
 
 function renderOtherRevenueTable(memberIds) {
-  let rows = OTHER_REVENUE.filter(r => currentMember === '全員' || memberIds.includes(r.member_id));
+  let rows = OTHER_REVENUE.filter(r => memberIds.includes(r.member_id));
   const CATEGORY_OPTS = ['採用コンサル・リテーナー・RPOなど','BW','顧問','その他'];
   if (otherRevCategoryFilter) rows = rows.filter(r => r.category === otherRevCategoryFilter);
   if (currentMember === '全員' && otherRevMemberFilter) rows = rows.filter(r => r.member_id === otherRevMemberFilter);
@@ -588,7 +589,7 @@ function renderOtherRevenueTable(memberIds) {
   if (currentMember === '全員') {
     filterHtml += '<div class="form-row" style="margin-bottom:10px"><div class="form-group"><label>担当で絞る</label><select onchange="setOtherRevMemberFilter(this.value)">' +
       '<option value=""' + (otherRevMemberFilter===''?' selected':'') + '>全員</option>' +
-      MEMBERS.map(m => '<option value="'+m.id+'"'+(otherRevMemberFilter===m.id?' selected':'')+'>'+(m.display_name||MEMBER_NAMES[m.name])+'</option>').join('') +
+      SALES_MEMBERS.map(m => '<option value="'+m.id+'"'+(otherRevMemberFilter===m.id?' selected':'')+'>'+(m.display_name||MEMBER_NAMES[m.name])+'</option>').join('') +
       '</select></div></div>';
   }
 
@@ -613,7 +614,7 @@ function renderOtherRevenueTable(memberIds) {
     th('date','日付') + th('member','担当') + th('category','事業カテゴリ') + th('amount','金額') + th('desc','内容') + '<th></th>' +
     '</tr></thead><tbody>';
   rows.forEach(r => {
-    const memberOpts = MEMBERS.map(m => '<option value="'+m.id+'"'+(m.id===r.member_id?' selected':'')+'>'+(m.display_name||MEMBER_NAMES[m.name])+'</option>').join('');
+    const memberOpts = SALES_MEMBERS.map(m => '<option value="'+m.id+'"'+(m.id===r.member_id?' selected':'')+'>'+(m.display_name||MEMBER_NAMES[m.name])+'</option>').join('');
     const categoryOpts = CATEGORY_OPTS.map(c => '<option'+(c===r.category?' selected':'')+'>'+c+'</option>').join('');
     html += '<tr>' +
       '<td><input type="date" class="hire-date-input" value="' + r.revenue_date + '" onchange="saveOtherRevenueField(\'' + r.id + '\',\'revenue_date\',this.value)"></td>' +

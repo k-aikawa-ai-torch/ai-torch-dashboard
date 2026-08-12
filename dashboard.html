@@ -199,7 +199,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-let MEMBERS = [];
+let MEMBERS = [], SALES_MEMBERS = [];
 let PIPELINE_DATA = [];
 let PHASE_HISTORY = [];
 let CANDIDATE_DATA = [];
@@ -314,6 +314,7 @@ async function loadData() {
   ]);
 
   MEMBERS = members || [];
+  SALES_MEMBERS = MEMBERS.filter(m => !!MEMBER_NAMES[m.name]); // アシスタント等、売上を作らないメンバーを集計対象から除外
   PIPELINE_DATA = pipeline || [];
   PHASE_HISTORY = phaseHistory || [];
   CANDIDATE_DATA = candidates || [];
@@ -876,7 +877,7 @@ function render() {
 
     function periodMetric(monthList) {
       let actualRevenue=0, targetRevenue=0, actualProfit=0, targetProfit=0, actualAccept=0, targetAccept=0;
-      MEMBERS.forEach(function(m) {
+      SALES_MEMBERS.forEach(function(m) {
         const mPipeline = PIPELINE_DATA.filter(function(p) { return p.members && p.members.name === m.name; });
         const mCandidates = CANDIDATE_DATA.filter(function(c) { return c.members && c.members.name === m.name; });
         targetRevenue += sumTargetsForMonths(m.id, monthList, 'revenue_target');
@@ -899,7 +900,7 @@ function render() {
     }
 
     function buildRankingData(monthList) {
-      return MEMBERS.map(function(m) {
+      return SALES_MEMBERS.map(function(m) {
         const mPipeline = PIPELINE_DATA.filter(function(p) { return p.members && p.members.name === m.name; });
         const mCandidates = CANDIDATE_DATA.filter(function(c) { return c.members && c.members.name === m.name; });
         const actual = sumActualRevenueForMonths(mPipeline, mCandidates, monthList);
@@ -960,7 +961,7 @@ function render() {
     html += '<div class="section-title">メンバー別 売上・KPI比較（' + currentMonth + '）</div>';
     html += '<table class="compare-table"><thead><tr><th>担当者</th><th>売上見込み</th><th>売上実績</th><th>粗利</th><th>面談</th><th>推薦</th><th>選考</th><th>内定</th><th>承諾</th></tr></thead><tbody>';
 
-    MEMBERS.forEach(member => {
+    SALES_MEMBERS.forEach(member => {
       const memberName = MEMBER_NAMES[member.name];
       const myPipeline = PIPELINE_DATA.filter(p => p.members && p.members.name === member.name);
       const myCandidates = CANDIDATE_DATA.filter(c => c.members && c.members.name === member.name);
