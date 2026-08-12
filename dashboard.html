@@ -452,13 +452,27 @@ function countAcceptsForMonths(pipelineItems, monthList) {
   }).length;
 }
 
-// 粗利：指定した月群のいずれかでgross_profit_calculated_atを迎えた候補者のgross_profit合計
-function sumGrossProfitForMonths(candidateItems, monthList) {
-  return candidateItems.reduce(function(sum, c) {
-    if (c.gross_profit == null || !c.gross_profit_calculated_at) return sum;
-    const ym = c.gross_profit_calculated_at.substring(0,7);
-    return monthList.indexOf(ym) !== -1 ? sum + c.gross_profit : sum;
-  }, 0);
+// 粗利：指定した月群のいずれかで内定承諾（pipeline_phase_history基準、gross_profit_calculated_atには依存しない）を迎えた候補者のgross_profit合計
+function sumGrossProfitForMonths(pipelineItems, candidateItems, monthList) {
+  const firstByPipeline = firstOccurrenceMap(pipelineItems, ACCEPT_PHASES);
+  const countedCandidates = new Set();
+  let sum = 0;
+  Object.keys(firstByPipeline).forEach(function(pid) {
+    const ym = firstByPipeline[pid].substring(0,7);
+    if (monthList.indexOf(ym) === -1) return;
+    const p = pipelineItems.find(function(x) { return x.id === pid; });
+    if (!p || !p.candidate_id || countedCandidates.has(p.candidate_id)) return;
+    countedCandidates.add(p.candidate_id);
+    const c = candidateItems.find(function(x) { return x.id === p.candidate_id; }) || CANDIDATE_DATA.find(function(x) { return x.id === p.candidate_id; });
+    if (c && c.gross_profit != null) sum += c.gross_profit;
+  });
+  // 入社前辞退などによる返金：出金月がこの期間に含まれる場合、粗利をマイナス計上する
+  pipelineItems.forEach(function(p) {
+    if (!p.refund_date || monthList.indexOf(p.refund_date.substring(0,7)) === -1) return;
+    const c = candidateItems.find(function(x) { return x.id === p.candidate_id; }) || CANDIDATE_DATA.find(function(x) { return x.id === p.candidate_id; });
+    if (c && c.gross_profit != null) sum -= c.gross_profit;
+  });
+  return sum;
 }
 
 const FORECAST_ELIGIBLE_PHASES = ['カジュアル面談','一次面接','二次～面接','最終面接','内定'];
@@ -597,18 +611,8 @@ function calcActuals(pipelineItems, candidateItems, month) {
   // ただし重複を避けるためSet使用
   const revenueSum = sumForecastRevenue(pipelineItems, candidateItems, [month]);
 
-  // 粗利：当月中に確定（内定承諾への到達 or 再計算）した候補者のgross_profit合計
-  let grossProfitSum = candidateItems.reduce(function(sum, c) {
-    if (c.gross_profit == null || !c.gross_profit_calculated_at) return sum;
-    const d = c.gross_profit_calculated_at.substring(0,10);
-    return (d >= start && d < end) ? sum + c.gross_profit : sum;
-  }, 0);
-  // 入社前辞退などによる返金：出金月が当月の場合、粗利をマイナス計上する
-  pipelineItems.forEach(function(p) {
-    if (!p.refund_date || !(p.refund_date >= start && p.refund_date < end)) return;
-    const c = candidateItems.find(function(x) { return x.id === p.candidate_id; });
-    if (c && c.gross_profit != null) grossProfitSum -= c.gross_profit;
-  });
+  // 粗利：内定承諾日（pipeline_phase_history基準）が当月の候補者のgross_profit合計（返金分の減算も内包）
+  const grossProfitSum = sumGrossProfitForMonths(pipelineItems, candidateItems, [month]);
 
   // 面談数：当月登録候補者数
   const interviews = monthCandidates.length;
@@ -778,7 +782,7 @@ function render() {
     const myForecastTerm = sumForecastRevenue(myPipeline, myCandidates, term.months);
     const myRate = myTargetTerm ? myActualTerm / myTargetTerm : 0;
     const myForecastRate = myTargetTerm ? Math.min(myForecastTerm / myTargetTerm, 1) : 0;
-    const myProfitActualTerm = sumGrossProfitForMonths(myCandidates, term.months);
+    const myProfitActualTerm = sumGrossProfitForMonths(myPipeline, myCandidates, term.months);
     const myProfitTargetTerm = sumTargetsForMonths(member.id, term.months, 'gross_profit_target');
     const myProfitForecastTerm = sumForecastGrossProfit(myPipeline, myCandidates, term.months);
     const myProfitRateTerm = myProfitTargetTerm ? myProfitActualTerm / myProfitTargetTerm : 0;
@@ -812,7 +816,7 @@ function render() {
     const myMonthForecast = sumForecastRevenue(myPipeline, myCandidates, [currentMonth]);
     const myMonthRate = myMonthTarget ? myMonthActual / myMonthTarget : 0;
     const myMonthForecastRate = myMonthTarget ? Math.min(myMonthForecast / myMonthTarget, 1) : 0;
-    const myProfitActualMonth = sumGrossProfitForMonths(myCandidates, [currentMonth]);
+    const myProfitActualMonth = sumGrossProfitForMonths(myPipeline, myCandidates, [currentMonth]);
     const myProfitTargetMonth = sumTargetsForMonths(member.id, [currentMonth], 'gross_profit_target');
     const myProfitForecastMonth = sumForecastGrossProfit(myPipeline, myCandidates, [currentMonth]);
     const myProfitRateMonth = myProfitTargetMonth ? myProfitActualMonth / myProfitTargetMonth : 0;
@@ -938,7 +942,7 @@ function render() {
         targetProfit += sumTargetsForMonths(m.id, monthList, 'gross_profit_target');
         targetAccept += sumTargetsForMonths(m.id, monthList, 'accept_target');
         actualRevenue += sumActualRevenueForMonths(mPipeline, mCandidates, monthList);
-        actualProfit += sumGrossProfitForMonths(mCandidates, monthList);
+        actualProfit += sumGrossProfitForMonths(mPipeline, mCandidates, monthList);
         actualAccept += countAcceptsForMonths(mPipeline, monthList);
       });
       return { actualRevenue, targetRevenue, actualProfit, targetProfit, actualAccept, targetAccept };
