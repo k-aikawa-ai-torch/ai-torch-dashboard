@@ -614,6 +614,21 @@ function calcActuals(pipelineItems, candidateItems, month) {
   return { revenueSum, grossProfitSum, interviews, selections, offers, accepts, activeByPhase };
 }
 
+// 期・年間など複数月にまたがる実績を合算する（売上見込みは「今時点のスナップショット」なので合算せず1回だけ採用）
+function calcActualsForMonths(pipelineItems, candidateItems, monthList) {
+  const revenueSum = sumForecastRevenue(pipelineItems, candidateItems);
+  let grossProfitSum = 0, interviews = 0, selections = 0, offers = 0, accepts = 0;
+  monthList.forEach(function(m) {
+    const a = calcActuals(pipelineItems, candidateItems, m);
+    grossProfitSum += a.grossProfitSum;
+    interviews += a.interviews;
+    selections += a.selections;
+    offers += a.offers;
+    accepts += a.accepts;
+  });
+  return { revenueSum, grossProfitSum, interviews, selections, offers, accepts };
+}
+
 function getTarget(memberId, month) {
   return TARGETS.find(t => t.member_id === memberId && t.year_month === month) || null;
 }
@@ -958,43 +973,48 @@ function render() {
 
     html += renderRankingPair([currentMonth], currentMonth);
 
-    html += '<div class="section-title">メンバー別 売上・KPI比較（' + currentMonth + '）</div>';
-    html += '<table class="compare-table"><thead><tr><th>担当者</th><th>売上見込み</th><th>売上実績</th><th>粗利</th><th>面談</th><th>推薦</th><th>選考</th><th>内定</th><th>承諾</th></tr></thead><tbody>';
+    function renderMemberCompareTable(monthList, periodLabel) {
+      let out = '<div class="section-title">メンバー別 売上・KPI比較（' + periodLabel + '）</div>';
+      out += '<table class="compare-table"><thead><tr><th>担当者</th><th>売上見込み</th><th>売上実績</th><th>粗利</th><th>面談</th><th>推薦</th><th>選考</th><th>内定</th><th>承諾</th></tr></thead><tbody>';
 
-    SALES_MEMBERS.forEach(member => {
-      const memberName = MEMBER_NAMES[member.name];
-      const myPipeline = PIPELINE_DATA.filter(p => p.members && p.members.name === member.name);
-      const myCandidates = CANDIDATE_DATA.filter(c => c.members && c.members.name === member.name);
-      const actuals = calcActuals(myPipeline, myCandidates, currentMonth);
-      const target = getTarget(member.id, currentMonth);
-      const monthActualRevenue = sumActualRevenueForMonths(myPipeline, myCandidates, [currentMonth]);
+      SALES_MEMBERS.forEach(member => {
+        const myPipeline = PIPELINE_DATA.filter(p => p.members && p.members.name === member.name);
+        const myCandidates = CANDIDATE_DATA.filter(c => c.members && c.members.name === member.name);
+        const actuals = calcActualsForMonths(myPipeline, myCandidates, monthList);
+        const monthActualRevenue = sumActualRevenueForMonths(myPipeline, myCandidates, monthList);
+        function sumTgt(field) { return sumTargetsForMonths(member.id, monthList, field); }
+        const recommendActualSum = sumTgt('recommend_actual');
 
-      function cell(actual, tgt, isRev) {
-        const rate = tgt ? actual / tgt : null;
-        const pct = rate !== null ? Math.min(rate * 100, 100) : 0;
-        const cls = rate !== null ? barClass(rate) : 'good';
-        const actualStr = isRev ? fmtSalary(actual) : actual;
-        const targetStr = tgt ? (isRev ? fmtSalary(tgt) : tgt) : '-';
-        return '<td><div class="progress-cell"><span>' + actualStr + ' / ' + targetStr + '</span>' +
-          (tgt ? '<div class="mini-bar-wrap"><div class="mini-bar ' + cls + '" style="width:' + pct + '%"></div></div>' : '') +
-          (rate !== null ? '<span style="font-size:10px;color:#6B7A99">' + fmtRate(rate) + '</span>' : '') +
-          '</div></td>';
-      }
+        function cell(actual, tgt, isRev) {
+          const rate = tgt ? actual / tgt : null;
+          const pct = rate !== null ? Math.min(rate * 100, 100) : 0;
+          const cls = rate !== null ? barClass(rate) : 'good';
+          const actualStr = isRev ? fmtSalary(actual) : actual;
+          const targetStr = tgt ? (isRev ? fmtSalary(tgt) : tgt) : '-';
+          return '<td><div class="progress-cell"><span>' + actualStr + ' / ' + targetStr + '</span>' +
+            (tgt ? '<div class="mini-bar-wrap"><div class="mini-bar ' + cls + '" style="width:' + pct + '%"></div></div>' : '') +
+            (rate !== null ? '<span style="font-size:10px;color:#6B7A99">' + fmtRate(rate) + '</span>' : '') +
+            '</div></td>';
+        }
 
-      html += '<tr>' +
-        '<td><strong>' + member.display_name + '</strong></td>' +
-        cell(actuals.revenueSum, target ? target.revenue_target : null, true) +
-        cell(monthActualRevenue, target ? target.revenue_target : null, true) +
-        cell(actuals.grossProfitSum, target ? target.gross_profit_target : null, true) +
-        cell(actuals.interviews, target ? target.interview_target : null, false) +
-        cell((target && target.recommend_actual) || 0, target ? target.recommend_target : null, false) +
-        cell(actuals.selections, target ? target.first_interview_target : null, false) +
-        cell(actuals.offers, target ? target.offer_target : null, false) +
-        cell(actuals.accepts, target ? target.accept_target : null, false) +
-        '</tr>';
-    });
+        out += '<tr>' +
+          '<td><strong>' + member.display_name + '</strong></td>' +
+          cell(actuals.revenueSum, sumTgt('revenue_target'), true) +
+          cell(monthActualRevenue, sumTgt('revenue_target'), true) +
+          cell(actuals.grossProfitSum, sumTgt('gross_profit_target'), true) +
+          cell(actuals.interviews, sumTgt('interview_target'), false) +
+          cell(recommendActualSum, sumTgt('recommend_target'), false) +
+          cell(actuals.selections, sumTgt('first_interview_target'), false) +
+          cell(actuals.offers, sumTgt('offer_target'), false) +
+          cell(actuals.accepts, sumTgt('accept_target'), false) +
+          '</tr>';
+      });
 
-    html += '</tbody></table>';
+      out += '</tbody></table>';
+      return out;
+    }
+
+    html += renderMemberCompareTable([currentMonth], currentMonth);
     html += '</div>';
 
     // ===== 期セクション =====
@@ -1002,6 +1022,7 @@ function render() {
     html += '<div class="sec-header"><span class="bar" style="background:#1baf7a"></span><span class="title">' + term.termLabel + '</span><span class="sub">' + term.termRangeLabel + '</span></div>';
     html += renderProgressCard(term.termLabel + '（' + term.termRangeLabel + '）', periodMetric(term.months));
     html += renderRankingPair(term.months, term.termLabel + '（' + term.termRangeLabel + '）');
+    html += renderMemberCompareTable(term.months, term.termLabel + '（' + term.termRangeLabel + '）');
     html += '</div>';
 
     // ===== 年間セクション =====
@@ -1009,6 +1030,7 @@ function render() {
     html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">年間</span><span class="sub">' + term.yearLabel + '</span></div>';
     html += renderProgressCard(term.yearLabel, periodMetric(term.yearMonths));
     html += renderRankingPair(term.yearMonths, term.yearLabel);
+    html += renderMemberCompareTable(term.yearMonths, term.yearLabel);
     html += '</div>';
 
     el.innerHTML = html;
