@@ -1305,8 +1305,8 @@ function renderMediaTable() {
     if (editMode && currentMember !== '全員') {
       const memberId = memberIds[0];
       const existing = MANUAL_KPI.find(m => m.member_id===memberId && m.source===source && m.year_month===currentMonth);
-      html += '<td><input class="media-input" type="number" id="scout-' + source.replace(/[^a-zA-Z0-9]/g,'') + '" value="' + (existing ? existing.scout_count||'' : '') + '" onchange="saveManualInput(\'' + memberId + '\',\'' + source + '\')"></td>';
-      html += '<td><input class="media-input" type="number" id="lead-' + source.replace(/[^a-zA-Z0-9]/g,'') + '" value="' + (existing ? existing.lead_count||'' : '') + '" onchange="saveManualInput(\'' + memberId + '\',\'' + source + '\')"></td>';
+      html += '<td><input class="media-input" type="number" id="scout-' + encodeURIComponent(source) + '" value="' + (existing ? existing.scout_count||'' : '') + '" onchange="saveManualInput(\'' + memberId + '\',\'' + source + '\')"></td>';
+      html += '<td><input class="media-input" type="number" id="lead-' + encodeURIComponent(source) + '" value="' + (existing ? existing.lead_count||'' : '') + '" onchange="saveManualInput(\'' + memberId + '\',\'' + source + '\')"></td>';
     } else {
       html += '<td>' + scoutTotal + '</td><td>' + leadTotal + '</td>';
     }
@@ -1334,7 +1334,7 @@ function renderMediaTable() {
 }
 
 async function saveManualInput(memberId, source) {
-  const key = source.replace(/[^a-zA-Z0-9]/g,'');
+  const key = encodeURIComponent(source);
   const scoutVal = document.getElementById('scout-' + key).value;
   const leadVal = document.getElementById('lead-' + key).value;
   const payload = {
