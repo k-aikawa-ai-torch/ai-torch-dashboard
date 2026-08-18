@@ -1009,7 +1009,7 @@ function memberMonthlySum(field, ym, memberIds) {
     .reduce(function(s,r) { return s + (r[field]||0); }, 0);
 }
 function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
-  const months = allMonthsInRange(DATA_START_MONTH, currentMonth).slice().reverse(); // 新しい月が上・全期間（枠内スクロールで初期表示は直近6ヶ月分の高さ）
+  const months = allMonthsInRange(getEffectiveStartMonth(memberIds), currentMonth).slice().reverse(); // 新しい月が上・全期間（枠内スクロールで初期表示は直近6ヶ月分の高さ）
 
   function metricsForMonth(m) {
     const scoutCount = computeScoutCount(m, memberIds);
@@ -1103,7 +1103,7 @@ function mediaMetricsRowHtml(label, d) {
     '<td>' + d.accepts + '</td><td>' + fmtPct(d.interviewToAcceptRate) + '</td></tr>';
 }
 function renderMonthlyMediaTables(memberIds) {
-  const months = allMonthsInRange(DATA_START_MONTH, currentMonth); // 全期間・古い月から新しい月の順
+  const months = allMonthsInRange(getEffectiveStartMonth(memberIds), currentMonth); // 全期間・古い月から新しい月の順
   const recentMonths = getRecentNMonths(currentMonth, 4);
   let html = '';
   SOURCE_LIST.forEach(function(source) {
@@ -1180,7 +1180,7 @@ function computeMediaPeriodStats(source, monthList, memberIds) {
   const srcCandidateIds = new Set(srcCandidates.map(c => c.id));
   const interviews = srcCandidates.filter(c => inPeriod((c.registered_at||'').substring(0,7))).length;
   const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
-  const months = monthList === null ? allMonthsInRange(DATA_START_MONTH, currentMonth) : monthList;
+  const months = monthList === null ? allMonthsInRange(getEffectiveStartMonth(memberIds), currentMonth) : monthList;
   const recUnique = months.reduce((s,ym) => s + recommendCountForMonth(source, ym, memberIds, srcCandidates), 0);
   const offers = months.reduce((s,ym) => s + offerUniqueCountForMonth(source, ym, memberIds, srcPipeline), 0);
   const accepts = months.reduce((s,ym) => s + acceptUniqueCountForMonth(source, ym, memberIds, srcPipeline), 0);
@@ -1229,6 +1229,16 @@ function renderMediaRateSummary() {
 
 const SYSTEM_START_MONTH = '2026-08'; // この月以降はパイプライン自動集計、それより前は手入力（予実シート由来）の推薦人数を使う
 const DATA_START_MONTH = '2025-02'; // 手入力データの最も古い月（予実管理シート・移行データの範囲）
+// 個人ごとの「全期間」集計の開始月を返す。特定の1人を見ているタブでは、その人のmembers.active_from_month
+// （入社・フルジョイン月）が設定されていればそれを起点にする（DATA_START_MONTHより前には遡らない）。
+// 「全員」タブなど複数人が対象のときは、これまで通り会社全体のDATA_START_MONTHを使う。
+function getEffectiveStartMonth(memberIds) {
+  if (memberIds && memberIds.length === 1) {
+    const m = MEMBERS.find(x => x.id === memberIds[0]);
+    if (m && m.active_from_month && m.active_from_month > DATA_START_MONTH) return m.active_from_month;
+  }
+  return DATA_START_MONTH;
+}
 function recommendCountForMonth(source, ym, memberIds, srcCandidates) {
   if (ym < SYSTEM_START_MONTH) {
     return MANUAL_KPI.filter(m => m.year_month === ym && memberIds.includes(m.member_id) && (source === null || m.source === source))
@@ -1353,7 +1363,7 @@ async function saveManualInput(memberId, source) {
 function openMediaModal(source) {
   document.getElementById('media-modal-title').textContent = source;
   const memberIds = currentMember === '全員' ? SALES_MEMBERS.map(m => m.id) : [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
-  const months = allMonthsInRange(DATA_START_MONTH, currentMonth).slice().reverse(); // 新しい月が上
+  const months = allMonthsInRange(getEffectiveStartMonth(memberIds), currentMonth).slice().reverse(); // 新しい月が上
   const rows = months.map(function(ym) {
     const d = computeMediaMetricsForMonth(source, ym, memberIds);
     return '<div style="padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:12.5px">' +
