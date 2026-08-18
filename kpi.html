@@ -147,7 +147,7 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 
 <div id="media-settings-modal">
   <div class="modal-box">
-    <div class="modal-header"><span>集計対象媒体の設定</span><button class="modal-close" onclick="closeMediaSettingsModal()">×</button></div>
+    <div class="modal-header"><span id="ms-modal-title">集計対象媒体の設定</span><button class="modal-close" onclick="closeMediaSettingsModal()">×</button></div>
     <div style="font-size:12px;color:#6B7A99;margin-bottom:6px">スカウト通数にカウントする媒体（チェックしたものだけファネルのスカウト通数に合算されます）</div>
     <div class="tag-filters" id="ms-scout-media" style="margin-bottom:16px"></div>
     <div style="font-size:12px;color:#6B7A99;margin-bottom:6px">返信率の計算から除外する媒体（面談数には引き続きカウントされます。例：レバテックダイレクトなど自分でスカウトを打たない媒体）</div>
@@ -1394,13 +1394,22 @@ function renderCustomMetrics(pipelineItems, candidateItems) {
 
 let editingPhaseTargetMemberId = null;
 let mediaSettingsModalDirty = false;
+let mediaSettingsTargetMemberId = null;
 let phaseTargetModalDirty = false;
 let customModalDirty = false;
 // ============ 集計対象媒体の設定（スカウト通数・返信率） ============
+function getMediaSettingsTargetMember() {
+  // 「全員」タブでは対象メンバーが1人に定まらないため、自分自身の設定を編集する
+  if (currentMember === '全員') return ME;
+  return MEMBERS.find(m => m.name === MEMBER_MAP[currentMember]) || null;
+}
 function openMediaSettingsModal() {
-  if (!ME) { alert('ログイン情報が取得できませんでした'); return; }
-  const scoutSelected = new Set(ME.scout_count_media || []);
-  const excludeSelected = new Set(ME.reply_rate_excluded_media || []);
+  const target = getMediaSettingsTargetMember();
+  if (!target) { alert('対象メンバーの情報が取得できませんでした'); return; }
+  mediaSettingsTargetMemberId = target.id;
+  document.getElementById('ms-modal-title').textContent = '集計対象媒体の設定（' + (target.display_name || target.name) + '）';
+  const scoutSelected = new Set(target.scout_count_media || []);
+  const excludeSelected = new Set(target.reply_rate_excluded_media || []);
   document.getElementById('ms-scout-media').innerHTML = SOURCE_LIST.map(s =>
     '<span class="tag' + (scoutSelected.has(s)?' on':'') + '" data-media="' + s + '" onclick="this.classList.toggle(\'on\')">' + s + '</span>'
   ).join('');
@@ -1425,11 +1434,12 @@ document.getElementById('media-settings-modal').addEventListener('click', functi
 async function saveMediaSettings() {
   const scoutMedia = Array.from(document.querySelectorAll('#ms-scout-media .tag.on')).map(el => el.dataset.media);
   const excludeMedia = Array.from(document.querySelectorAll('#ms-exclude-media .tag.on')).map(el => el.dataset.media);
-  const { error } = await sb.from('members').update({ scout_count_media: scoutMedia, reply_rate_excluded_media: excludeMedia }).eq('id', ME.id);
+  const targetId = mediaSettingsTargetMemberId;
+  if (!targetId) { alert('対象メンバーの情報が取得できませんでした'); return; }
+  const { error } = await sb.from('members').update({ scout_count_media: scoutMedia, reply_rate_excluded_media: excludeMedia }).eq('id', targetId);
   if (error) { alert('保存に失敗しました: ' + error.message); return; }
-  ME.scout_count_media = scoutMedia;
-  ME.reply_rate_excluded_media = excludeMedia;
-  const m = MEMBERS.find(x => x.id === ME.id);
+  if (ME && ME.id === targetId) { ME.scout_count_media = scoutMedia; ME.reply_rate_excluded_media = excludeMedia; }
+  const m = MEMBERS.find(x => x.id === targetId);
   if (m) { m.scout_count_media = scoutMedia; m.reply_rate_excluded_media = excludeMedia; }
   mediaSettingsModalDirty = false;
   closeMediaSettingsModal();
