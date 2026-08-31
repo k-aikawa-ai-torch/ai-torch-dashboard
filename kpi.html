@@ -1330,6 +1330,44 @@ function renderMediaTable() {
     html += '<td>' + accepts + '</td>';
     html += '</tr>';
   });
+
+  // 【バグ修正】この表の「合計」は従来SOURCE_LIST（登録済み媒体11件）のみを合算していたため、
+  // candidates.sourceがそのどれとも一致しない候補者（未設定・自由入力・レガシーデータ等）が
+  // 合計から漏れ、月次一覧／当月ファネル／ダッシュボードの面談数（全候補者ベース）と合計がズレていた。
+  // ここでSOURCE_LISTに含まれないsourceの候補者を「その他（未分類）」行としてすくい上げ、合計に含める。
+  const otherCandidates = CANDIDATE_DATA.filter(c => memberIds.includes(c.member_id) && !SOURCE_LIST.includes(cleanSource(c.source)));
+  if (otherCandidates.length) {
+    const otherLabel = 'その他（未分類・source: ' + Array.from(new Set(otherCandidates.map(c => cleanSource(c.source) || '(未設定)'))).join('／') + '）';
+    const otherCandidateIds = new Set(otherCandidates.map(c => c.id));
+    const otherInterviews = otherCandidates.filter(c => (c.registered_at||'').substring(0,7) === currentMonth).length;
+    const otherPipeline = PIPELINE_DATA.filter(p => p.candidate_id && otherCandidateIds.has(p.candidate_id));
+    // 手入力(MANUAL_KPI)は集計対象媒体（SOURCE_LIST）専用の仕組みのため、その他行のスカウト数・リード獲得数は対象外（常に0扱い）
+    // 「__uncategorized__」は既存のsource値と絶対に一致しないダミー値。SYSTEM_START_MONTHより前の月でMANUAL_KPIの
+    // sourceと誤って一致してしまうのを避けるために使用（recommendCountForMonth等はsource===nullだと全媒体合算になるため）
+    const recUnique = recommendCountForMonth('__uncategorized__', currentMonth, memberIds, otherCandidates);
+    const offers = offerUniqueCountForMonth('__uncategorized__', currentMonth, memberIds, otherPipeline);
+    const accepts = acceptUniqueCountForMonth('__uncategorized__', currentMonth, memberIds, otherPipeline);
+
+    totals.interviews += otherInterviews;
+    totals.recUnique += recUnique; totals.offers += offers; totals.accepts += accepts;
+
+    const interviewToRecRate = otherInterviews ? recUnique/otherInterviews : null;
+    const recToOfferRate = recUnique ? offers/recUnique : null;
+    const offerToAcceptRate = offers ? accepts/offers : null;
+
+    html += '<tr style="color:#b3261e">';
+    html += '<td title="集計対象媒体（SOURCE_LIST）に含まれない候補者。候補者管理で流入経路を見直すことをおすすめします">' + otherLabel + '</td>';
+    html += '<td>-</td><td>-</td><td>-</td>';
+    html += '<td>' + otherInterviews + '</td>';
+    html += '<td>' + fmtPct(interviewToRecRate) + '</td>';
+    html += '<td>' + recUnique + '</td>';
+    html += '<td>' + fmtPct(recToOfferRate) + '</td>';
+    html += '<td>' + offers + '</td>';
+    html += '<td>' + fmtPct(offerToAcceptRate) + '</td>';
+    html += '<td>' + accepts + '</td>';
+    html += '</tr>';
+  }
+
   const totalReplyRate = totals.scoutTotal ? totals.leadTotal/totals.scoutTotal : null;
   const totalInterviewToRecRate = totals.interviews ? totals.recUnique/totals.interviews : null;
   const totalRecToOfferRate = totals.recUnique ? totals.offers/totals.recUnique : null;
