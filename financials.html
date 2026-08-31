@@ -227,7 +227,7 @@ function getAllMonthsSince202502() {
   const months = [];
   const start = new Date(2025, 1, 1); // 2025-02
   const now = new Date();
-  const end = new Date(now.getFullYear(), now.getMonth() + 6, 1); // 半年後まで表示可能にする
+  const end = new Date(now.getFullYear(), now.getMonth() + 12, 1); // 1年後まで表示可能にする
   for (let d = new Date(start); d <= end; d.setMonth(d.getMonth() + 1)) {
     months.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
   }

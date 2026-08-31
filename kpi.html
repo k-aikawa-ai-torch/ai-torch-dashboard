@@ -281,7 +281,7 @@ async function loadData() {
   const selectEl = document.getElementById('month-select');
   const allMonths = [];
   const startD = new Date(2025, 1, 1);
-  const endD = new Date(now.getFullYear(), now.getMonth() + 3, 1);
+  const endD = new Date(now.getFullYear(), now.getMonth() + 12, 1); // 1年後まで表示可能にする
   for (let d = new Date(startD); d <= endD; d.setMonth(d.getMonth() + 1)) {
     const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
     allMonths.push({ key, label: d.getFullYear() + '年' + (d.getMonth()+1) + '月' });

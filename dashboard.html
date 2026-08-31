@@ -114,7 +114,7 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
 /* 目標編集 */
 #target-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center}
 #target-modal.open{display:flex}
-#target-modal-box{background:#fff;border-radius:12px;width:90%;max-width:760px;padding:24px;max-height:85vh;overflow-y:auto}
+#target-modal-box{background:#fff;border-radius:12px;width:90%;max-width:920px;padding:24px;max-height:85vh;overflow-y:auto}
 .modal-header{font-size:15px;font-weight:500;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center}
 .modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:#6B7A99}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -270,7 +270,7 @@ async function loadData() {
   const selectEl = document.getElementById('month-select');
   const allMonths = [];
   const startD = new Date(2025, 1, 1); // 2025-02
-  const endD = new Date(now.getFullYear(), now.getMonth() + 3, 1);
+  const endD = new Date(now.getFullYear(), now.getMonth() + 12, 1); // 1年後まで表示可能にする
   for (let d = new Date(startD); d <= endD; d.setMonth(d.getMonth() + 1)) {
     const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
     allMonths.push({ key, label: d.getFullYear() + '年' + (d.getMonth()+1) + '月' });
@@ -386,6 +386,17 @@ function getMonthRange(ym) {
   const nextMo = mo === 12 ? 1 : mo + 1;
   const end = nextY + '-' + String(nextMo).padStart(2, '0') + '-01';
   return { start, end };
+}
+
+// 今年度・来年度の年間目標モーダルを開く基準月（8月始まりの期はgetTermInfoが吸収する）
+function getThisFYRefMonth() {
+  const now = new Date();
+  return now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+}
+function getNextFYRefMonth() {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() + 12, 1);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
 }
 
 // 8月始まり・4ヶ月区切りの期を計算する
@@ -760,10 +771,14 @@ function render() {
     const pickedNicknameY = nicknamesY.length ? nicknamesY[Math.floor(Math.random() * nicknamesY.length)] : '';
     const nameWithNick = currentMember + (pickedNicknameY ? '（' + pickedNicknameY + '）' : '');
 
-    // 目標ボタンは右上に配置
-    document.getElementById('target-btn-area').innerHTML = target
+    // 目標ボタンは右上に配置（期単位の編集ボタンに加え、今年度・来年度の年間一括設定ボタンも並べる）
+    const termBtnHtml = target
       ? '<button class="edit-target-btn" onclick="openTargetModal(\'' + member.id + '\',\'' + currentMonth + '\')">✏️ ' + term.termLabel + 'の目標を編集</button>'
       : '<button class="edit-target-btn" onclick="openTargetModal(\'' + member.id + '\',\'' + currentMonth + '\')">📋 ' + term.termLabel + 'の目標を設定する</button>';
+    const yearBtnsHtml =
+      '<button class="edit-target-btn" onclick="openTargetModal(\'' + member.id + '\',\'' + getThisFYRefMonth() + '\',\'year\')">📅 今年度の年間目標</button>' +
+      '<button class="edit-target-btn" onclick="openTargetModal(\'' + member.id + '\',\'' + getNextFYRefMonth() + '\',\'year\')">📅 来年度の年間目標</button>';
+    document.getElementById('target-btn-area').innerHTML = termBtnHtml + yearBtnsHtml;
 
     function heroBlock(label, actualRate, actualAmount, targetAmount, forecastRate, forecastAmount, forecastLabel, showMessage, barColor) {
       const color = barColor || '#0D40D9';
@@ -1101,25 +1116,28 @@ const TARGET_FIELDS = [
   { key: 'accept_target', label: '承諾目標（件）' },
 ];
 
-function openTargetModal(memberId, month) {
+function openTargetModal(memberId, month, mode) {
+  // mode: 'term'（デフォルト・4ヶ月区切りの期単位）| 'year'（12ヶ月・年度単位でまとめて設定）
+  mode = mode || 'term';
   editingTargetMemberId = memberId;
   const term = getTermInfo(month);
-  editingTargetMonths = term.months;
+  editingTargetMonths = mode === 'year' ? term.yearMonths : term.months;
   const memberName = MEMBERS.find(m => m.id === memberId)?.display_name || '';
-  document.getElementById('target-modal-title').textContent = memberName + ' ' + term.termLabel + '（' + term.termRangeLabel + '）の目標';
+  const periodLabel = mode === 'year' ? (term.yearLabel + '・年間') : (term.termLabel + '（' + term.termRangeLabel + '）');
+  document.getElementById('target-modal-title').textContent = memberName + ' ' + periodLabel + 'の目標';
 
-  let tableHtml = '<table class="target-table"><thead><tr><th>項目</th>' +
+  let tableHtml = '<div style="overflow-x:auto"><table class="target-table"><thead><tr><th>項目</th>' +
     editingTargetMonths.map(m => '<th>' + m + '</th>').join('') + '</tr></thead><tbody>';
   TARGET_FIELDS.forEach(function(f) {
     tableHtml += '<tr><td>' + f.label + '</td>';
     editingTargetMonths.forEach(function(m, i) {
       const t = TARGETS.find(t => t.member_id === memberId && t.year_month === m) || null;
       const val = t ? (t[f.key] != null ? t[f.key] : '') : '';
-      tableHtml += '<td><input id="tf-' + f.key + '-' + i + '" type="number" step="' + (f.key === 'accept_target' ? '0.1' : '1') + '" value="' + val + '"></td>';
+      tableHtml += '<td><input id="tf-' + f.key + '-' + i + '" type="number" step="' + (f.key === 'accept_target' ? '0.1' : '1') + '" style="width:80px" value="' + val + '"></td>';
     });
     tableHtml += '</tr>';
   });
-  tableHtml += '</tbody></table>';
+  tableHtml += '</tbody></table></div>';
   document.getElementById('target-modal-table').innerHTML = tableHtml;
   document.getElementById('target-save-msg').textContent = '';
   targetModalDirty = false;
