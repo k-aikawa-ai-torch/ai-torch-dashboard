@@ -466,9 +466,10 @@ function renderKeepScroll() {
   const y = window.scrollY;
   const scrollWraps = ['checklist-scroll-wrap', 'monthly-history-wrap'];
   const savedLeft = {};
+  const savedTop = {};
   scrollWraps.forEach(id => {
     const el = document.getElementById(id);
-    if (el) savedLeft[id] = el.scrollLeft;
+    if (el) { savedLeft[id] = el.scrollLeft; savedTop[id] = el.scrollTop; }
   });
   // 再描画で今フォーカスしている要素が消えると、ブラウザが勝手にスクロールしてしまうため、
   // 同じセルにフォーカスを戻す（scrollは起こさない）
@@ -480,6 +481,7 @@ function renderKeepScroll() {
     scrollWraps.forEach(id => {
       const el = document.getElementById(id);
       if (el && savedLeft[id] != null) el.scrollLeft = savedLeft[id];
+      if (el && savedTop[id] != null) el.scrollTop = savedTop[id];
     });
     if (activeCell) {
       const el = document.querySelector('[data-cell="' + activeCell.replace(/"/g,'\\"') + '"]');
