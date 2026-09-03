@@ -1008,6 +1008,15 @@ function memberMonthlySum(field, ym, memberIds) {
   return MEMBER_MONTHLY_MANUAL.filter(function(r) { return r.year_month === ym && memberIds.includes(r.member_id); })
     .reduce(function(s,r) { return s + (r[field]||0); }, 0);
 }
+// 推薦数（延べ）の実績値。当月ファネル（スカウト〜内定承諾）の「推薦」カードと同じく、
+// TARGETSテーブルの手入力実績(recommend_actual)を正とする（パイプラインのフェーズ到達件数ベースの
+// countRecommendsDeal()は、応募承諾以降のフェーズ入力が徹底されないケースがあり過小集計になるため使わない）
+function recommendActualForMonth(ym, memberIds) {
+  return memberIds.reduce(function(s, mid) {
+    const t = TARGETS.find(function(t) { return t.member_id === mid && t.year_month === ym; });
+    return s + ((t && t.recommend_actual) || 0);
+  }, 0);
+}
 function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
   const months = allMonthsInRange(getEffectiveStartMonth(memberIds), currentMonth).slice().reverse(); // 新しい月が上・全期間（枠内スクロールで初期表示は直近6ヶ月分の高さ）
 
@@ -1016,7 +1025,7 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
     const leadCount = computeReplyRate(m, memberIds).leadSum;
     const interviews = candidateItems.filter(function(c){return (c.registered_at||'').substring(0,7)===m;}).length;
     const recUnique = recommendCountForMonth(null, m, memberIds, candidateItems);
-    const recDeal = m < SYSTEM_START_MONTH ? memberMonthlySum('recommend_deal', m, memberIds) : countRecommendsDeal(pipelineItems, m);
+    const recDeal = m < SYSTEM_START_MONTH ? memberMonthlySum('recommend_deal', m, memberIds) : recommendActualForMonth(m, memberIds);
     const firstI = m < SYSTEM_START_MONTH ? memberMonthlySum('first_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '一次面接', m);
     const finalI = m < SYSTEM_START_MONTH ? memberMonthlySum('final_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '最終面接', m);
     const offerCount = m < SYSTEM_START_MONTH ? memberMonthlySum('offer_deal_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '内定', m);
@@ -1069,7 +1078,7 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
   html += '<div style="overflow-x:auto"><table class="media-summary-table"><thead><tr>' + headerHtml() + '</tr></thead><tbody>' +
     rowHtml('全期間平均', avg) + '</tbody></table></div>';
 
-  html += '<div class="monthly-scroll-wrap" style="max-height:280px"><table class="media-table"><thead><tr>' + headerHtml() + '</tr></thead><tbody>';
+  html += '<div class="monthly-scroll-wrap" style="max-height:420px"><table class="media-table"><thead><tr>' + headerHtml() + '</tr></thead><tbody>';
   monthly.forEach(function(row) { html += rowHtml(row.m, row.d); });
   html += '</tbody></table></div>';
 
