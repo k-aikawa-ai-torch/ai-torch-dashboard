@@ -132,15 +132,36 @@ const PIPELINE_PHASE_LIST = ['未提案','提案中','応募承諾','書類選�
 // 決定時点の売上・粗利は、候補者側担当者（CA・pipeline.member_id）に90%、
 // 企業側担当者（RA・companies.member_id）に10%を配分する。
 // CAとRAが同一人物の場合は 0.9+0.1=1.0 となり、自動的にその人に100%つく（特別扱い不要）。
+// 例外1：永井がCAの場合は、RAが誰であってもこの10%ルールを適用せず、永井に100%つける。
+// 例外2：このルールは2026年8月の決定分からの適用のため、内定承諾（決定）が2026年7月以前の案件には適用しない
+//        （入社日・入金日が2026年8月以降でも、決定＝内定承諾が2026年7月以前なら対象外）。
 const CA_SHARE = 0.9, RA_SHARE = 0.1;
+const RA_RULE_START_YM = '2026-08';
 function getCaMemberId(p) { return p.member_id || null; }
 function getRaMemberId(p) { return p.companies?.member_id || null; }
+function getNagaiMemberId() {
+  const m = MEMBERS.find(x => x.name === 'nagai_yudai');
+  return m ? m.id : null;
+}
+// acceptYm（内定承諾に初到達した年月 'YYYY-MM'）を基準に、このpipelineレコードにRA配分ルールを適用すべきか判定する
+function raSplitApplies(p, acceptYm) {
+  if (!acceptYm || acceptYm < RA_RULE_START_YM) return false; // 2026年8月決定分より前は対象外
+  const nagaiId = getNagaiMemberId();
+  if (nagaiId != null && getCaMemberId(p) === nagaiId) return false; // 永井がCAの案件は対象外
+  return true;
+}
 // targetMemberId が null の場合は「全員合計」を意味し、常に満額（100%）を返す
-function memberWeight(p, targetMemberId) {
+// acceptYm はそのpipelineが内定承諾に初到達した年月（'YYYY-MM'）。ルール適用外の場合はCAに100%つける
+function memberWeight(p, targetMemberId, acceptYm) {
   if (targetMemberId == null) return 1;
+  const caId = getCaMemberId(p);
+  if (!raSplitApplies(p, acceptYm)) {
+    return caId === targetMemberId ? 1 : 0;
+  }
+  const raId = getRaMemberId(p);
   let w = 0;
-  if (getCaMemberId(p) === targetMemberId) w += CA_SHARE;
-  if (getRaMemberId(p) === targetMemberId) w += RA_SHARE;
+  if (caId === targetMemberId) w += CA_SHARE;
+  if (raId === targetMemberId) w += RA_SHARE;
   return w;
 }
 function memberDisplayName(memberId) {
@@ -312,7 +333,8 @@ function sumDecisionBasis(pipelineItems, monthList, targetMemberId = null) {
     const p = pipelineItems.find(x => x.id === pid);
     if (!p || !p.candidate_id || counted.has(p.candidate_id)) return;
     counted.add(p.candidate_id);
-    const w = memberWeight(p, targetMemberId);
+    const acceptYm = map[pid].substring(0,7);
+    const w = memberWeight(p, targetMemberId, acceptYm);
     if (w === 0) return;
     if (p.candidates?.revenue_forecast) revenue += p.candidates.revenue_forecast * w;
     if (p.candidates?.gross_profit != null) profit += p.candidates.gross_profit * w;
@@ -320,7 +342,8 @@ function sumDecisionBasis(pipelineItems, monthList, targetMemberId = null) {
   // 入社前辞退・早期退職による返金：出金月がこの期間に含まれる場合、売上・粗利をマイナス計上する（CA/RAの配分比率も同様に適用）
   pipelineItems.forEach(p => {
     if (!p.refund_date || !monthList.includes(p.refund_date.substring(0,7))) return;
-    const w = memberWeight(p, targetMemberId);
+    const acceptYm = map[p.id] ? map[p.id].substring(0,7) : null;
+    const w = memberWeight(p, targetMemberId, acceptYm);
     if (w === 0) return;
     const impact = calcRefundImpact(p);
     revenue -= impact.revenue * w;
@@ -330,13 +353,15 @@ function sumDecisionBasis(pipelineItems, monthList, targetMemberId = null) {
 }
 
 function sumAccrualBasis(pipelineItems, monthList, targetMemberId = null) {
+  const acceptMap = firstOccurrenceMap(pipelineItems, ACCEPT_PHASES); // 決定日（内定承諾日）を見て按分ルール適用可否を判定するために使う
   const counted = new Set();
   let revenue = 0, profit = 0;
   pipelineItems.forEach(p => {
     if (!p.hire_date || !monthList.includes(p.hire_date.substring(0,7))) return;
     if (!p.candidate_id || counted.has(p.candidate_id)) return;
     counted.add(p.candidate_id);
-    const w = memberWeight(p, targetMemberId);
+    const acceptYm = acceptMap[p.id] ? acceptMap[p.id].substring(0,7) : null;
+    const w = memberWeight(p, targetMemberId, acceptYm);
     if (w === 0) return;
     if (p.candidates?.revenue_forecast) revenue += p.candidates.revenue_forecast * w;
     if (p.candidates?.gross_profit != null) profit += p.candidates.gross_profit * w;
@@ -344,7 +369,8 @@ function sumAccrualBasis(pipelineItems, monthList, targetMemberId = null) {
   // 入社前辞退・早期退職による返金：出金月がこの期間に含まれる場合、売上・粗利をマイナス計上する（CA/RAの配分比率も同様に適用）
   pipelineItems.forEach(p => {
     if (!p.refund_date || !monthList.includes(p.refund_date.substring(0,7))) return;
-    const w = memberWeight(p, targetMemberId);
+    const acceptYm = acceptMap[p.id] ? acceptMap[p.id].substring(0,7) : null;
+    const w = memberWeight(p, targetMemberId, acceptYm);
     if (w === 0) return;
     const impact = calcRefundImpact(p);
     revenue -= impact.revenue * w;
@@ -566,7 +592,7 @@ function render() {
   }
 
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">売上・粗利（P/L）</span><span class="sub">人材紹介＋その他売上の合算／担当者別表示はCA(候補者担当)90%・RA(企業担当)10%で按分</span></div>';
+  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">売上・粗利（P/L）</span><span class="sub">人材紹介＋その他売上の合算／担当者別表示はCA(候補者担当)90%・RA(企業担当)10%で按分（2026年8月決定分から・永井がCAの案件は対象外）</span></div>';
   html += '<div class="form-row" style="margin-bottom:12px"><div class="form-group"><label>表示する月を選択（期・年もこの月を含む期間になります）</label><select id="pl-month-select" onchange="setPlMonth(this.value)">' +
     getAllMonthsSince202502().map(m => '<option value="' + m + '"' + (m===plSelectedMonth?' selected':'') + '>' + m + '</option>').join('') + '</select></div></div>';
   html += '<div style="display:flex;gap:16px;flex-wrap:wrap">';
@@ -823,16 +849,26 @@ function renderChecklist(pipelineItems) {
     const cost = grossProfit != null ? revenueForecast - grossProfit : null;
     const theoreticalSalary = p.theoretical_salary != null ? p.theoretical_salary : revenueForecast;
 
+    const acceptYm = acceptDate ? acceptDate.substring(0,7) : null;
     const raMemberId = getRaMemberId(p);
     const raName = memberDisplayName(raMemberId);
+    const raApplies = raSplitApplies(p, acceptYm);
     const raRevenue = revenueForecast * RA_SHARE;
     const raProfit = grossProfit != null ? grossProfit * RA_SHARE : null;
+    let raCellHtml;
+    if (!raName) {
+      raCellHtml = '-';
+    } else if (!raApplies) {
+      raCellHtml = '<div>' + raName + '</div><div style="font-size:9.5px;color:#9aa3b8">10%ルール対象外</div>';
+    } else {
+      raCellHtml = '<div>' + raName + '</div><div style="font-size:9.5px;color:#9aa3b8;white-space:nowrap">売上 ' + fmtSalary(raRevenue) + '<br>粗利 ' + (raProfit != null ? fmtSalary(raProfit) : '-') + '</div>';
+    }
 
     html += '<tr>';
     html += '<td><strong>' + (p.candidates?.name||'-') + '</strong></td>';
     html += '<td style="color:#6B7A99">' + (p.companies?.name||'-') + '</td>';
     html += '<td style="color:#6B7A99">' + (p.members?.display_name||'-') + '</td>';
-    html += '<td style="color:#6B7A99">' + (raName ? '<div>' + raName + '</div><div style="font-size:9.5px;color:#9aa3b8;white-space:nowrap">売上 ' + fmtSalary(raRevenue) + '<br>粗利 ' + (raProfit != null ? fmtSalary(raProfit) : '-') + '</div>' : '-') + '</td>';
+    html += '<td style="color:#6B7A99">' + raCellHtml + '</td>';
     html += '<td style="color:#6B7A99">' + (cleanSource(p.candidates?.source)||'-') + '</td>';
     html += '<td><input type="date" class="hire-date-input" data-cell="' + p.id + ':accept_date" value="' + (acceptDate||'') + '" onchange="saveAcceptDate(\'' + p.id + '\',this.value)"></td>';
     html += '<td><input type="date" class="hire-date-input" data-cell="' + p.id + ':hire_date" value="' + (p.hire_date||'') + '" onchange="saveHireDate(\'' + p.id + '\',this.value)"></td>';
