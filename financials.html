@@ -128,6 +128,27 @@ const MEMBER_NAMES = {'aikawa_kenta':'相川','nagai_yudai':'永井','aizawa_yum
 const ACCEPT_PHASES = ['内定承諾','入社待ち','入社済み'];
 const PIPELINE_PHASE_LIST = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾','入社待ち','入社済み'];
 
+// ===== RA（企業担当者）配分ロジック =====
+// 決定時点の売上・粗利は、候補者側担当者（CA・pipeline.member_id）に90%、
+// 企業側担当者（RA・companies.member_id）に10%を配分する。
+// CAとRAが同一人物の場合は 0.9+0.1=1.0 となり、自動的にその人に100%つく（特別扱い不要）。
+const CA_SHARE = 0.9, RA_SHARE = 0.1;
+function getCaMemberId(p) { return p.member_id || null; }
+function getRaMemberId(p) { return p.companies?.member_id || null; }
+// targetMemberId が null の場合は「全員合計」を意味し、常に満額（100%）を返す
+function memberWeight(p, targetMemberId) {
+  if (targetMemberId == null) return 1;
+  let w = 0;
+  if (getCaMemberId(p) === targetMemberId) w += CA_SHARE;
+  if (getRaMemberId(p) === targetMemberId) w += RA_SHARE;
+  return w;
+}
+function memberDisplayName(memberId) {
+  if (!memberId) return null;
+  const m = MEMBERS.find(x => x.id === memberId);
+  return m ? (m.display_name || MEMBER_NAMES[m.name] || m.name) : null;
+}
+
 let MEMBERS = [], SALES_MEMBERS = [], PIPELINE_DATA = [], CANDIDATE_DATA = [], PHASE_HISTORY = [], OTHER_REVENUE = [];
 let currentMember = '全員';
 let plSelectedMonth = new Date().toISOString().substring(0,7);
@@ -181,7 +202,7 @@ async function loadData() {
   const [{ data: members }, { data: candidates }, pipeline, phaseHistory, { data: otherRevenue }] = await Promise.all([
     sb.from('members').select('*'),
     sb.from('candidates').select('*,members(name,display_name)').is('deleted_at', null),
-    fetchAllRange('pipeline', '*, members(name,display_name), candidates(name,source,revenue_forecast,gross_profit), companies(name)'),
+    fetchAllRange('pipeline', '*, members(name,display_name), candidates(name,source,revenue_forecast,gross_profit), companies(name,member_id)'),
     fetchAllRange('pipeline_phase_history', '*'),
     sb.from('other_revenue').select('*,members(name,display_name)').order('revenue_date', { ascending: false }),
   ]);
@@ -281,7 +302,8 @@ function calcRefundImpact(p) {
 }
 
 // ===== 決定ベース（内定承諾日基準）と発生ベース（入社日基準）の売上・粗利集計 =====
-function sumDecisionBasis(pipelineItems, monthList) {
+// targetMemberId: null なら全員合計（満額100%）、メンバーidを渡すとCA90%/RA10%で配分した金額を返す
+function sumDecisionBasis(pipelineItems, monthList, targetMemberId = null) {
   const map = firstOccurrenceMap(pipelineItems, ACCEPT_PHASES);
   const counted = new Set();
   let revenue = 0, profit = 0;
@@ -290,35 +312,43 @@ function sumDecisionBasis(pipelineItems, monthList) {
     const p = pipelineItems.find(x => x.id === pid);
     if (!p || !p.candidate_id || counted.has(p.candidate_id)) return;
     counted.add(p.candidate_id);
-    if (p.candidates?.revenue_forecast) revenue += p.candidates.revenue_forecast;
-    if (p.candidates?.gross_profit != null) profit += p.candidates.gross_profit;
+    const w = memberWeight(p, targetMemberId);
+    if (w === 0) return;
+    if (p.candidates?.revenue_forecast) revenue += p.candidates.revenue_forecast * w;
+    if (p.candidates?.gross_profit != null) profit += p.candidates.gross_profit * w;
   });
-  // 入社前辞退・早期退職による返金：出金月がこの期間に含まれる場合、売上・粗利をマイナス計上する
+  // 入社前辞退・早期退職による返金：出金月がこの期間に含まれる場合、売上・粗利をマイナス計上する（CA/RAの配分比率も同様に適用）
   pipelineItems.forEach(p => {
     if (!p.refund_date || !monthList.includes(p.refund_date.substring(0,7))) return;
+    const w = memberWeight(p, targetMemberId);
+    if (w === 0) return;
     const impact = calcRefundImpact(p);
-    revenue -= impact.revenue;
-    profit -= impact.profit;
+    revenue -= impact.revenue * w;
+    profit -= impact.profit * w;
   });
   return { revenue, profit };
 }
 
-function sumAccrualBasis(pipelineItems, monthList) {
+function sumAccrualBasis(pipelineItems, monthList, targetMemberId = null) {
   const counted = new Set();
   let revenue = 0, profit = 0;
   pipelineItems.forEach(p => {
     if (!p.hire_date || !monthList.includes(p.hire_date.substring(0,7))) return;
     if (!p.candidate_id || counted.has(p.candidate_id)) return;
     counted.add(p.candidate_id);
-    if (p.candidates?.revenue_forecast) revenue += p.candidates.revenue_forecast;
-    if (p.candidates?.gross_profit != null) profit += p.candidates.gross_profit;
+    const w = memberWeight(p, targetMemberId);
+    if (w === 0) return;
+    if (p.candidates?.revenue_forecast) revenue += p.candidates.revenue_forecast * w;
+    if (p.candidates?.gross_profit != null) profit += p.candidates.gross_profit * w;
   });
-  // 入社前辞退・早期退職による返金：出金月がこの期間に含まれる場合、売上・粗利をマイナス計上する
+  // 入社前辞退・早期退職による返金：出金月がこの期間に含まれる場合、売上・粗利をマイナス計上する（CA/RAの配分比率も同様に適用）
   pipelineItems.forEach(p => {
     if (!p.refund_date || !monthList.includes(p.refund_date.substring(0,7))) return;
+    const w = memberWeight(p, targetMemberId);
+    if (w === 0) return;
     const impact = calcRefundImpact(p);
-    revenue -= impact.revenue;
-    profit -= impact.profit;
+    revenue -= impact.revenue * w;
+    profit -= impact.profit * w;
   });
   return { revenue, profit };
 }
@@ -366,9 +396,9 @@ function setChecklistSort(key) {
   render();
 }
 
-function computePLForMonth(pipelineScope, memberIdsScope, m) {
-  const dec = sumDecisionBasis(pipelineScope, [m]);
-  const acc = sumAccrualBasis(pipelineScope, [m]);
+function computePLForMonth(pipelineScope, memberIdsScope, m, targetMemberId = null) {
+  const dec = sumDecisionBasis(pipelineScope, [m], targetMemberId);
+  const acc = sumAccrualBasis(pipelineScope, [m], targetMemberId);
   const other = sumOtherRevenueForMonths(memberIdsScope, [m]);
   return {
     decRevenue: dec.revenue + other.revenue, decProfit: dec.profit + other.profit,
@@ -376,9 +406,9 @@ function computePLForMonth(pipelineScope, memberIdsScope, m) {
   };
 }
 
-function computePLForMonths(pipelineScope, memberIdsScope, monthsArr) {
-  const dec = sumDecisionBasis(pipelineScope, monthsArr);
-  const acc = sumAccrualBasis(pipelineScope, monthsArr);
+function computePLForMonths(pipelineScope, memberIdsScope, monthsArr, targetMemberId = null) {
+  const dec = sumDecisionBasis(pipelineScope, monthsArr, targetMemberId);
+  const acc = sumAccrualBasis(pipelineScope, monthsArr, targetMemberId);
   const other = sumOtherRevenueForMonths(memberIdsScope, monthsArr);
   return {
     decRevenue: dec.revenue + other.revenue, decProfit: dec.profit + other.profit,
@@ -426,20 +456,21 @@ function renderMonthlyHistoryTable() {
 
   let html = '<table class="rev-table"><thead><tr><th>月／担当</th><th>決定ベース売上</th><th>決定ベース粗利</th><th>発生ベース売上</th><th>発生ベース粗利</th></tr></thead><tbody>';
 
-  function renderScope(pipelineScope, memberIdsScope, showMemberBreakdown) {
+  // pipelineScope は常に「全社の（アシスタント等を除く）pipeline」を渡し、targetMemberIdでCA90%/RA10%の按分を行う。
+  // こうすることで、自分がCAでない（企業担当=RAとしてのみ関わる）案件の10%も、その人の実績に正しく合算される。
+  function renderScope(pipelineScope, memberIdsScope, showMemberBreakdown, targetMemberId) {
     years.forEach(function(y) {
-      const yearTotal = computePLForMonths(pipelineScope, memberIdsScope, y.terms.flatMap(t => t.months));
+      const yearTotal = computePLForMonths(pipelineScope, memberIdsScope, y.terms.flatMap(t => t.months), targetMemberId);
       html += '<tr style="font-weight:800;background:#dbe4fa"><td>' + y.yearLabel + '　年間合計</td>' + plCells(yearTotal) + '</tr>';
       y.terms.slice().reverse().forEach(function(g) {
-        const termTotal = computePLForMonths(pipelineScope, memberIdsScope, g.months);
+        const termTotal = computePLForMonths(pipelineScope, memberIdsScope, g.months, targetMemberId);
         html += '<tr style="font-weight:700;background:#eef2fc"><td>' + g.label + ' 小計</td>' + plCells(termTotal) + '</tr>';
         g.months.slice().reverse().forEach(function(m) {
-          const total = computePLForMonth(pipelineScope, memberIdsScope, m);
+          const total = computePLForMonth(pipelineScope, memberIdsScope, m, targetMemberId);
           if (showMemberBreakdown) {
             html += '<tr style="font-weight:600;background:#f9f9f7"><td>' + m + '　（' + SALES_MEMBERS.length + '人合計）</td>' + plCells(total) + '</tr>';
             SALES_MEMBERS.forEach(function(mem) {
-              const mp = PIPELINE_DATA.filter(p => p.members && p.members.name === mem.name);
-              const d = computePLForMonth(mp, [mem.id], m);
+              const d = computePLForMonth(pipelineScope, [mem.id], m, mem.id);
               html += '<tr><td style="padding-left:24px;color:#6B7A99">' + (mem.display_name || MEMBER_NAMES[mem.name] || mem.name) + '</td>' + plCells(d) + '</tr>';
             });
           } else {
@@ -450,11 +481,12 @@ function renderMonthlyHistoryTable() {
     });
   }
 
+  const monthlyScope = filterByMemberName(PIPELINE_DATA, '全員'); // 常に全社スコープ。個人按分はtargetMemberIdで行う
   if (currentMember === '全員') {
-    renderScope(filterByMemberName(PIPELINE_DATA, '全員'), SALES_MEMBERS.map(x => x.id), true);
+    renderScope(monthlyScope, SALES_MEMBERS.map(x => x.id), true, null);
   } else {
-    const memberIds = [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
-    renderScope(filterByMemberName(PIPELINE_DATA, currentMember), memberIds, false);
+    const memberId = MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id;
+    renderScope(monthlyScope, [memberId], false, memberId);
   }
   html += '</tbody></table>';
 
@@ -497,7 +529,11 @@ function renderKeepScroll() {
 
 function render() {
   const el = document.getElementById('content');
+  // myPipeline：事務処理チェックリスト等、従来通り「候補者側担当者（CA）＝そのタブの人」で絞り込む表示に使う
   const myPipeline = filterByMemberName(PIPELINE_DATA, currentMember);
+  // scopeAllPipeline：P/L集計用。CA/RAの按分計算は個々の案件の担当関係を見て行うため、常に全社スコープを渡す
+  const scopeAllPipeline = filterByMemberName(PIPELINE_DATA, '全員');
+  const targetMemberId = currentMember === '全員' ? null : MEMBERS.find(m=>m.name===MEMBER_MAP[currentMember])?.id;
   const memberIds = currentMember === '全員' ? SALES_MEMBERS.map(m=>m.id) : [MEMBERS.find(m=>m.name===MEMBER_MAP[currentMember])?.id];
 
   let html = '';
@@ -506,8 +542,9 @@ function render() {
   const term = getTermInfo(plSelectedMonth);
   const curMonth = [plSelectedMonth];
 
+  // fn（sumDecisionBasis/sumAccrualBasis）にtargetMemberIdを渡し、CA90%/RA10%で按分した金額を集計する
   function combined(fn, monthList) {
-    const rec = fn(myPipeline, monthList);
+    const rec = fn(scopeAllPipeline, monthList, targetMemberId);
     const oth = sumOtherRevenueForMonths(memberIds, monthList);
     return { revenue: rec.revenue + oth.revenue, profit: rec.profit + oth.profit };
   }
@@ -529,7 +566,7 @@ function render() {
   }
 
   html += '<div class="section-block">';
-  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">売上・粗利（P/L）</span><span class="sub">人材紹介＋その他売上の合算</span></div>';
+  html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">売上・粗利（P/L）</span><span class="sub">人材紹介＋その他売上の合算／担当者別表示はCA(候補者担当)90%・RA(企業担当)10%で按分</span></div>';
   html += '<div class="form-row" style="margin-bottom:12px"><div class="form-group"><label>表示する月を選択（期・年もこの月を含む期間になります）</label><select id="pl-month-select" onchange="setPlMonth(this.value)">' +
     getAllMonthsSince202502().map(m => '<option value="' + m + '"' + (m===plSelectedMonth?' selected':'') + '>' + m + '</option>').join('') + '</select></div></div>';
   html += '<div style="display:flex;gap:16px;flex-wrap:wrap">';
@@ -768,13 +805,13 @@ function renderChecklist(pipelineItems) {
       '<span class="sort-arrow' + (active ? ' active' : '') + '">' + (active ? (checklistSortDir===1?'▲':'▼') : '↕') + '</span></span>' + filterIcon + '</th>';
   }
   let html = '<div class="checklist-scroll-wrap" id="checklist-scroll-wrap"><table class="checklist-table">' +
-    '<colgroup><col style="width:90px"><col style="width:140px"><col style="width:60px"><col style="width:140px">' +
+    '<colgroup><col style="width:90px"><col style="width:140px"><col style="width:60px"><col style="width:130px"><col style="width:140px">' +
     '<col style="width:100px"><col style="width:100px"><col style="width:90px"><col style="width:90px"><col style="width:90px"><col style="width:90px">' +
     '<col style="width:100px"><col style="width:100px">' +
     CHECKLIST_ITEMS.map(()=>'<col style="width:95px">').join('') +
     '<col style="width:150px"><col style="width:60px"></colgroup>' +
     '<thead><tr>' +
-    th('candidate','候補者') + th('company','企業') + th('member','担当') + th('source','流入経路') + th('accept_date','内定承諾日') + th('hire_date','入社日') +
+    th('candidate','候補者') + th('company','企業') + th('member','担当（CA）') + '<th>RA担当（企業担当・10%配分）</th>' + th('source','流入経路') + th('accept_date','内定承諾日') + th('hire_date','入社日') +
     th('theoretical_salary','理論年収') + th('cost','原価') + th('profit','粗利') + th('revenue','売上金額') + th('payment_date','入金日') + th('refund_date','出金日（辞退・早期退職）');
   CHECKLIST_ITEMS.forEach(it => { html += '<th>' + it.label + '</th>'; });
   html += '<th>備考</th><th></th></tr></thead><tbody>';
@@ -786,10 +823,16 @@ function renderChecklist(pipelineItems) {
     const cost = grossProfit != null ? revenueForecast - grossProfit : null;
     const theoreticalSalary = p.theoretical_salary != null ? p.theoretical_salary : revenueForecast;
 
+    const raMemberId = getRaMemberId(p);
+    const raName = memberDisplayName(raMemberId);
+    const raRevenue = revenueForecast * RA_SHARE;
+    const raProfit = grossProfit != null ? grossProfit * RA_SHARE : null;
+
     html += '<tr>';
     html += '<td><strong>' + (p.candidates?.name||'-') + '</strong></td>';
     html += '<td style="color:#6B7A99">' + (p.companies?.name||'-') + '</td>';
     html += '<td style="color:#6B7A99">' + (p.members?.display_name||'-') + '</td>';
+    html += '<td style="color:#6B7A99">' + (raName ? '<div>' + raName + '</div><div style="font-size:9.5px;color:#9aa3b8;white-space:nowrap">売上 ' + fmtSalary(raRevenue) + '<br>粗利 ' + (raProfit != null ? fmtSalary(raProfit) : '-') + '</div>' : '-') + '</td>';
     html += '<td style="color:#6B7A99">' + (cleanSource(p.candidates?.source)||'-') + '</td>';
     html += '<td><input type="date" class="hire-date-input" data-cell="' + p.id + ':accept_date" value="' + (acceptDate||'') + '" onchange="saveAcceptDate(\'' + p.id + '\',this.value)"></td>';
     html += '<td><input type="date" class="hire-date-input" data-cell="' + p.id + ':hire_date" value="' + (p.hire_date||'') + '" onchange="saveHireDate(\'' + p.id + '\',this.value)"></td>';
