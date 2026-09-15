@@ -125,8 +125,8 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const MEMBER_MAP = {'相川':'aikawa_kenta','永井':'nagai_yudai','會澤':'aizawa_yuma'};
 const MEMBER_NAMES = {'aikawa_kenta':'相川','nagai_yudai':'永井','aizawa_yuma':'會澤'};
-const ACCEPT_PHASES = ['内定承諾','入社待ち','入社済み'];
-const PIPELINE_PHASE_LIST = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾','入社待ち','入社済み'];
+const ACCEPT_PHASES = ['内定承諾','入社済み'];
+const PIPELINE_PHASE_LIST = ['未提案','提案中','応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾','入社済み'];
 
 // ===== RA（企業担当者）配分ロジック =====
 // 決定時点の売上・粗利は、候補者側担当者（CA・pipeline.member_id）に90%、

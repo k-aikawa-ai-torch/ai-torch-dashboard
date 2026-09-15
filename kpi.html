@@ -405,7 +405,7 @@ function countUniqueByCandidatePhase(pipelineItems, pipelinePhase, candidatePhas
 }
 // 応募承諾以降（応募承諾を飛ばして書類選考等から始まるケースも含む）のいずれかのフェーズに
 // 最初に到達したパイプライン件数（延べ）＝「推薦した」とみなす基準
-const RECOMMEND_DEAL_PHASES = ['応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾','入社待ち','入社済み'];
+const RECOMMEND_DEAL_PHASES = ['応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾','入社済み'];
 function countAnyPhaseReachedInMonth(pipelineItems, phases, month) {
   const map = firstOccurrenceMap(pipelineItems, phases);
   return Object.values(map).filter(function(d) { return d.substring(0,7) === month; }).length;
@@ -420,7 +420,7 @@ const SENKOU_NOW_PHASES = ['書類選考','カジュアル面談','一次面接'
 function countRecommendsUnique(candidateItems, month) {
   return candidateItems.filter(function(c) { return c.senkou_now_at && c.senkou_now_at.substring(0,7) === month; }).length;
 }
-const ACCEPT_PHASES = ['内定承諾','入社待ち','入社済み'];
+const ACCEPT_PHASES = ['内定承諾','入社済み'];
 function countAcceptsForMonths(pipelineItems, monthList) {
   const map = firstOccurrenceMap(pipelineItems, ACCEPT_PHASES);
   return Object.values(map).filter(d => monthList.includes(d.substring(0,7))).length;
