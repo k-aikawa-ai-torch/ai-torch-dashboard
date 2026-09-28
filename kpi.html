@@ -150,7 +150,7 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
     <div class="modal-header"><span id="ms-modal-title">集計対象媒体の設定</span><button class="modal-close" onclick="closeMediaSettingsModal()">×</button></div>
     <div style="font-size:12px;color:#6B7A99;margin-bottom:6px">スカウト通数にカウントする媒体（チェックしたものだけファネルのスカウト通数に合算されます）</div>
     <div class="tag-filters" id="ms-scout-media" style="margin-bottom:16px"></div>
-    <div style="font-size:12px;color:#6B7A99;margin-bottom:6px">返信率の計算から除外する媒体（面談数には引き続きカウントされます。例：レバテックダイレクトなど自分でスカウトを打たない媒体）</div>
+    <div style="font-size:12px;color:#6B7A99;margin-bottom:6px">返信率の計算から除外する媒体（候補者登録数には引き続きカウントされます。例：レバテックダイレクトなど自分でスカウトを打たない媒体）</div>
     <div class="tag-filters" id="ms-exclude-media" style="margin-bottom:16px"></div>
     <div class="form-actions">
       <button class="btn-cancel" onclick="closeMediaSettingsModal()">キャンセル</button>
@@ -164,7 +164,7 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
     <div class="modal-header"><span id="pt-modal-title">フェーズ別目標を編集</span><button class="modal-close" onclick="closePhaseTargetModal()">×</button></div>
     <div class="form-group"><label>スカウト通数目標（件）</label><input id="pt-scout" type="number"></div>
     <div class="form-group"><label>リード獲得数目標（件）</label><input id="pt-lead" type="number"></div>
-    <div class="form-group"><label>面談目標（件）</label><input id="pt-interview" type="number"></div>
+    <div class="form-group"><label>候補者登録目標（件）</label><input id="pt-interview" type="number"></div>
     <div class="form-group"><label>推薦目標（件・書類選考目標を兼ねる）</label><input id="pt-recommend" type="number"></div>
     <div class="form-group"><label>カジュアル面談目標（件）</label><input id="pt-casual" type="number"></div>
     <div class="form-group"><label>一次面接目標（件）</label><input id="pt-first" type="number"></div>
@@ -403,6 +403,47 @@ function countUniqueByCandidatePhase(pipelineItems, pipelinePhase, candidatePhas
   });
   return ids.size;
 }
+
+// ===== 面接フェーズのスキップ救済ロジック =====
+// 1回面接（初回が最終面接）等、案件によっては「カジュアル面談」「一次面接」「二次～面接」を
+// 一切経由せず、より後段のフェーズへ直接進めるケースがある。この場合pipeline_phase_historyに
+// 該当フェーズの記録が一度も残らないため、通常の到達数集計から漏れてしまう。
+// 「skippedPhasesを一度も経由していない」パイプラインについてのみ、実際に到達したlaterPhasesの
+// 到達日を代用して救済カウントする（skippedPhasesを経由済みの案件は通常ロジック側で計上済みのため、
+// ここでは二重計上しないよう除外する）
+const AFTER_FIRST_INTERVIEW_PHASES = ['二次～面接', '最終面接', '内定', '内定承諾', '入社済み'];
+const AFTER_SECOND_INTERVIEW_PHASES = ['最終面接', '内定', '内定承諾', '入社済み'];
+const AFTER_FINAL_INTERVIEW_PHASES = ['内定', '内定承諾', '入社済み'];
+
+function countSkippedPhaseReachedInMonth(pipelineItems, skippedPhases, laterPhases, month) {
+  const skippedMap = firstOccurrenceMap(pipelineItems, skippedPhases);
+  const laterMap = firstOccurrenceMap(pipelineItems, laterPhases);
+  let count = 0;
+  Object.keys(laterMap).forEach(function(pid) {
+    if (skippedMap[pid]) return;
+    if (laterMap[pid].substring(0,7) === month) count++;
+  });
+  return count;
+}
+function countSkippedPhaseReachedAllTime(pipelineItems, skippedPhases, laterPhases) {
+  const skippedMap = firstOccurrenceMap(pipelineItems, skippedPhases);
+  const laterMap = firstOccurrenceMap(pipelineItems, laterPhases);
+  return Object.keys(laterMap).filter(function(pid) { return !skippedMap[pid]; }).length;
+}
+// ユニーク候補者数版：skippedPhasesを一度も経由していない候補者について、laterPhasesへの到達日で救済する
+function countUniqueSkippedPhaseReachedInMonth(pipelineItems, skippedPhases, laterPhases, month) {
+  const skippedMap = firstOccurrenceMap(pipelineItems, skippedPhases);
+  const laterMap = firstOccurrenceMap(pipelineItems, laterPhases);
+  const ids = new Set();
+  Object.keys(laterMap).forEach(function(pid) {
+    if (skippedMap[pid]) return;
+    if (laterMap[pid].substring(0,7) !== month) return;
+    const p = pipelineItems.find(function(x) { return x.id === pid; });
+    if (p && p.candidate_id) ids.add(p.candidate_id);
+  });
+  return ids.size;
+}
+
 // 応募承諾以降（応募承諾を飛ばして書類選考等から始まるケースも含む）のいずれかのフェーズに
 // 最初に到達したパイプライン件数（延べ）＝「推薦した」とみなす基準
 const RECOMMEND_DEAL_PHASES = ['応募承諾','書類選考','カジュアル面談','一次面接','二次～面接','最終面接','内定','内定承諾','入社済み'];
@@ -465,9 +506,9 @@ function computeBaseMetric(key, pipelineItems, candidateItems, month, sourceFilt
   switch(key) {
     case 'doc_screen': return countPhaseReachedInMonth(pipelineItems, '書類選考', month);
     case 'casual': return countPhaseReachedInMonth(pipelineItems, 'カジュアル面談', month);
-    case 'first_interview': return countPhaseReachedInMonth(pipelineItems, '一次面接', month);
-    case 'second_interview': return countPhaseReachedInMonth(pipelineItems, '二次～面接', month);
-    case 'final_interview': return countPhaseReachedInMonth(pipelineItems, '最終面接', month);
+    case 'first_interview': return countPhaseReachedInMonth(pipelineItems, '一次面接', month) + countSkippedPhaseReachedInMonth(pipelineItems, ['カジュアル面談','一次面接'], AFTER_FIRST_INTERVIEW_PHASES, month);
+    case 'second_interview': return countPhaseReachedInMonth(pipelineItems, '二次～面接', month) + countSkippedPhaseReachedInMonth(pipelineItems, ['二次～面接'], AFTER_SECOND_INTERVIEW_PHASES, month);
+    case 'final_interview': return countPhaseReachedInMonth(pipelineItems, '最終面接', month) + countSkippedPhaseReachedInMonth(pipelineItems, ['最終面接'], AFTER_FINAL_INTERVIEW_PHASES, month);
     case 'offer': return countPhaseReachedInMonth(pipelineItems, '内定', month);
     case 'offer_unique': return countUniquePhaseReachedInMonth(pipelineItems, '内定', month);
     case 'accept': return countPhaseReachedInMonth(pipelineItems, '内定承諾', month);
@@ -507,7 +548,7 @@ function sumManualBySource(pipelineItems, month, field, source) {
 const BASE_METRIC_OPTIONS = [
   { key: 'scout', label: 'スカウト数（手入力）' },
   { key: 'lead', label: 'リード獲得数（手入力）' },
-  { key: 'interviews', label: '面談数（候補者登録数）' },
+  { key: 'interviews', label: '候補者登録数' },
   { key: 'recommend_deal', label: '推薦件数（延べ・応募承諾到達）' },
   { key: 'recommend_unique', label: '推薦人数（ユニーク）' },
   { key: 'recommends', label: '推薦数（手入力合計）' },
@@ -537,11 +578,11 @@ function render() {
   const interviews = computeBaseMetric('interviews', myPipeline, myCandidates, currentMonth);
   const recUnique = countRecommendsUnique(myCandidates, currentMonth);
   const casualDeal = countPhaseReachedInMonth(myPipeline, 'カジュアル面談', currentMonth);
-  const firstDeal = countPhaseReachedInMonth(myPipeline, '一次面接', currentMonth);
+  const firstDeal = countPhaseReachedInMonth(myPipeline, '一次面接', currentMonth) + countSkippedPhaseReachedInMonth(myPipeline, ['カジュアル面談','一次面接'], AFTER_FIRST_INTERVIEW_PHASES, currentMonth);
   const casualOrFirstDeal = casualDeal + firstDeal;
-  const casualOrFirstUnique = countUniqueReachedAnyPhase(myPipeline, ['カジュアル面談','一次面接'], currentMonth);
-  const finalDeal = countPhaseReachedInMonth(myPipeline, '最終面接', currentMonth);
-  const finalUnique = countUniquePhaseReachedInMonth(myPipeline, '最終面接', currentMonth);
+  const casualOrFirstUnique = countUniqueReachedAnyPhase(myPipeline, ['カジュアル面談','一次面接'], currentMonth) + countUniqueSkippedPhaseReachedInMonth(myPipeline, ['カジュアル面談','一次面接'], AFTER_FIRST_INTERVIEW_PHASES, currentMonth);
+  const finalDeal = countPhaseReachedInMonth(myPipeline, '最終面接', currentMonth) + countSkippedPhaseReachedInMonth(myPipeline, ['最終面接'], AFTER_FINAL_INTERVIEW_PHASES, currentMonth);
+  const finalUnique = countUniquePhaseReachedInMonth(myPipeline, '最終面接', currentMonth) + countUniqueSkippedPhaseReachedInMonth(myPipeline, ['最終面接'], AFTER_FINAL_INTERVIEW_PHASES, currentMonth);
   const offerDeal = countPhaseReachedInMonth(myPipeline, '内定', currentMonth);
   const offerUnique = countUniqueByCandidatePhase(myPipeline, '内定', ['内定KITAAA'], currentMonth);
   const acceptDeal = countPhaseReachedInMonth(myPipeline, '内定承諾', currentMonth);
@@ -591,18 +632,18 @@ function render() {
   html += renderFunnel([
     { label: 'スカウト通数', value: scoutCount + '件', target: tScout || null },
     { label: 'リード獲得数', value: leadCount + '件', rate: replyRateInfo.rate, targetRate: tScoutToLeadRate, target: tLead || null },
-    { label: '面談', value: interviews + '件', rate: leadToInterviewRate, targetRate: tLeadToInterviewRate, target: tInterview || null },
+    { label: '候補者登録', value: interviews + '件', rate: leadToInterviewRate, targetRate: tLeadToInterviewRate, target: tInterview || null },
     { label: '推薦', value: dealUniqueLabel(recommendActual, recUnique), rate: interviewToRecommendRate, target: tRecommend || null },
     { label: 'カジュアル面談+一次面接', value: dealUniqueLabel(casualOrFirstDeal, casualOrFirstUnique), rate: docPassRate, targetRate: tDocPassRate, target: (tCasual+tFirst) || null },
     { label: '最終面接', value: dealUniqueLabel(finalDeal, finalUnique), rate: firstToFinalRate, targetRate: tFirstToFinalRate, target: tFinal || null },
     { label: '内定', value: dealUniqueLabel(offerDeal, offerUnique), rate: finalToOfferRate, targetRate: tFinalToOfferRate, target: tOffer || null },
     { label: '内定承諾', value: dealUniqueLabel(acceptDeal, acceptUnique), rate: offerToAcceptRate, targetRate: tAcceptRate, target: tAccept || null },
   ]);
-  html += '<div style="font-size:11px;color:#9aa3b8;margin-top:6px">リード獲得数の遷移率は返信率・書類通過率はカジュアル面談＋一次面接の合算（延べ件数）で計算・集計対象媒体は⚙️から設定できます（除外した媒体の面談数は引き続きカウントされます）</div>';
+  html += '<div style="font-size:11px;color:#9aa3b8;margin-top:6px">リード獲得数の遷移率は返信率・書類通過率はカジュアル面談＋一次面接の合算（延べ件数）で計算・集計対象媒体は⚙️から設定できます（除外した媒体の候補者登録数は引き続きカウントされます）</div>';
 
   html += '<div class="kpi-grid" style="margin-top:16px">';
   html += kpiCard('返信率', fmtPct(replyRateInfo.rate), replyRateInfo.scoutSum + '件 → ' + replyRateInfo.leadSum + '件（除外媒体を除く）');
-  html += kpiCard('面談数', interviews + '件', '');
+  html += kpiCard('候補者登録数', interviews + '件', '');
   html += kpiCard('推薦数', recommendActual + '件', '手入力実績');
   html += kpiCard('一次面接数', casualOrFirstDeal + '件', 'カジュアル面談+一次面接（延べ）');
   html += kpiCard('内定数', offerDeal + '件', '延べ件数');
@@ -777,8 +818,11 @@ function avgLeadTimeDays(pairs) {
 }
 // 2026-08-01より前のフェーズ履歴（内定承諾を除く）はテスト/お試し運用時のノイズのため除外する
 const LEAD_TIME_HISTORY_CUTOFF = '2026-08-01';
-// [面談日, 推薦日] のペア一覧（registered_at×recommended_at）。recommended_atは旧Notionデータに存在しないため、
-// 自然と2026/8以降のデータのみが対象になる
+// [候補者登録日, 推薦日] のペア一覧（registered_at×recommended_at）。
+// 【注記・2026/9】registered_atは「面談日」ではなく実質的に「候補者登録日時」（候補者管理に面談日専用の入力欄はない）。
+// 旧Notion移行データについては移行時点で面談実施日相当のタイムスタンプが入っていたため結果的に近い値になっていたが、
+// 新規登録分は候補者登録＝面談実施タイミングという運用前提に依存する（表示ラベルは「候補者登録」系に統一済み）。
+// recommended_atは旧Notionデータに存在しないため、自然と2026/8以降のデータのみが対象になる
 function pairsInterviewToRecommend(pipelineItems) {
   const pairs = [];
   pipelineItems.forEach(function(p) {
@@ -812,8 +856,9 @@ function pairsOfferToAccept(pipelineItems) {
   });
   return pairs;
 }
-// [面談日, 内定承諾日] のペア一覧（registered_at×phase_history）。registered_atは旧Notionの元日時が
-// 保持されており、内定承諾のphase_historyも遡及入力されているため全期間で計算可能
+// [候補者登録日, 内定承諾日] のペア一覧（registered_at×phase_history）。
+// registered_atの実態は「候補者登録日時」（上記pairsInterviewToRecommendの注記参照）。旧Notion移行データは
+// 移行時点の元日時が保持されており、内定承諾のphase_historyも遡及入力されているため全期間で計算可能
 function pairsInterviewToAccept(pipelineItems) {
   const acceptMap = firstOccurrenceMap(pipelineItems, ['内定承諾']);
   const pairs = [];
@@ -869,8 +914,8 @@ function renderCompanyAnalysis(pipelineItems) {
   Object.keys(byCompany).sort().forEach(function(name) {
     const ps = byCompany[name].pipelines;
     const rec = Object.keys(firstOccurrenceMap(ps, RECOMMEND_DEAL_PHASES)).length;
-    const first = countPhaseReachedAllTime(ps, '一次面接');
-    const final = countPhaseReachedAllTime(ps, '最終面接');
+    const first = countPhaseReachedAllTime(ps, '一次面接') + countSkippedPhaseReachedAllTime(ps, ['カジュアル面談','一次面接'], AFTER_FIRST_INTERVIEW_PHASES);
+    const final = countPhaseReachedAllTime(ps, '最終面接') + countSkippedPhaseReachedAllTime(ps, ['最終面接'], AFTER_FINAL_INTERVIEW_PHASES);
     const off = countPhaseReachedAllTime(ps, '内定');
     const acc = countPhaseReachedAllTime(ps, '内定承諾');
     const rowKey = 'company-cands-' + name.replace(/[^a-zA-Z0-9ぁ-んァ-ヶ一-龠]/g, '');
@@ -948,10 +993,10 @@ function renderLeadTimeSection(pipelineItems) {
   const c = leadTimeSummary(pairsOfferToAccept(pipelineItems), recentMonths);
   const d = leadTimeSummary(pairsInterviewToAccept(pipelineItems), recentMonths);
   let html = '<div class="kpi-grid">';
-  html += leadTimeCard('面談→推薦', a);
+  html += leadTimeCard('登録→推薦', a);
   html += leadTimeCard('推薦→一次面接実施日', b);
   html += leadTimeCard('内定→内定承諾', c);
-  html += leadTimeCard('面談→内定承諾（トータル）', d);
+  html += leadTimeCard('登録→内定承諾（トータル）', d);
   html += '</div>';
   return html;
 }
@@ -1026,8 +1071,8 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
     const interviews = candidateItems.filter(function(c){return (c.registered_at||'').substring(0,7)===m;}).length;
     const recUnique = recommendCountForMonth(null, m, memberIds, candidateItems);
     const recDeal = m < SYSTEM_START_MONTH ? memberMonthlySum('recommend_deal', m, memberIds) : recommendActualForMonth(m, memberIds);
-    const firstI = m < SYSTEM_START_MONTH ? memberMonthlySum('first_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '一次面接', m);
-    const finalI = m < SYSTEM_START_MONTH ? memberMonthlySum('final_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '最終面接', m);
+    const firstI = m < SYSTEM_START_MONTH ? memberMonthlySum('first_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '一次面接', m) + countSkippedPhaseReachedInMonth(pipelineItems, ['カジュアル面談','一次面接'], AFTER_FIRST_INTERVIEW_PHASES, m);
+    const finalI = m < SYSTEM_START_MONTH ? memberMonthlySum('final_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '最終面接', m) + countSkippedPhaseReachedInMonth(pipelineItems, ['最終面接'], AFTER_FINAL_INTERVIEW_PHASES, m);
     const offerCount = m < SYSTEM_START_MONTH ? memberMonthlySum('offer_deal_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '内定', m);
     const acceptCount = countPhaseReachedInMonth(pipelineItems, '内定承諾', m);
     return { scoutCount, leadCount, interviews, recUnique, recDeal, firstI, finalI, offerCount, acceptCount };
@@ -1036,7 +1081,7 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
   const FUNNEL_STEPS = [
     { key: 'scoutCount', label: 'スカウト通数' },
     { key: 'leadCount', label: 'リード獲得数' },
-    { key: 'interviews', label: '面談数' },
+    { key: 'interviews', label: '登録数' },
     { key: 'recUnique', label: '推薦人数' },
     { key: 'recDeal', label: '推薦数', noRate: true },
     { key: 'firstI', label: '一次面接数' },
@@ -1119,16 +1164,16 @@ function renderMonthlyMediaTables(memberIds) {
     html += '<div style="font-size:12px;color:#6B7A99;margin:14px 0 4px;font-weight:500">' + source + '</div>';
     // ---- サマリー（直近4ヶ月・全期間） ----
     html += '<table class="media-summary-table"><thead><tr>' +
-      '<th>期間</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>面談数</th><th>面談→推薦率</th>' +
-      '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>面談→承諾率</th>' +
+      '<th>期間</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>登録→推薦率</th>' +
+      '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>登録→承諾率</th>' +
       '</tr></thead><tbody>';
     html += mediaMetricsRowHtml('直近4ヶ月', aggregateMediaMetrics(source, recentMonths, memberIds));
     html += mediaMetricsRowHtml('全期間（' + months[0] + '〜' + months[months.length-1] + '）', aggregateMediaMetrics(source, months, memberIds));
     html += '</tbody></table>';
     // ---- 月別詳細（枠内スクロール・先頭行/列固定・4ヶ月分くらいの高さ） ----
     html += '<div class="monthly-scroll-wrap" style="max-height:210px"><table class="media-table"><thead><tr>' +
-      '<th>月</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>面談数</th><th>面談→推薦率</th>' +
-      '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>面談→承諾率</th>' +
+      '<th>月</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>登録→推薦率</th>' +
+      '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>登録→承諾率</th>' +
       '</tr></thead><tbody>';
     months.forEach(function(m) {
       html += mediaMetricsRowHtml(m, computeMediaMetricsForMonth(source, m, memberIds));
@@ -1202,7 +1247,7 @@ function computeMediaPeriodStats(source, monthList, memberIds) {
 }
 const MEDIA_RATE_METRICS = [
   { key: 'replyRate', label: '返信率' },
-  { key: 'interviewToRecRate', label: '面談→推薦率' },
+  { key: 'interviewToRecRate', label: '登録→推薦率' },
   { key: 'recToOfferRate', label: '推薦→内定率' },
   { key: 'offerToAcceptRate', label: '内定→承諾率' },
 ];
@@ -1295,7 +1340,7 @@ function allMonthsInRange(startYM, endYM) {
 function renderMediaTable() {
   const memberIds = currentMember === '全員' ? SALES_MEMBERS.map(m => m.id) : [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
   let html = '<div class="monthly-scroll-wrap" style="max-height:360px"><table class="media-table"><thead><tr>' +
-    '<th>媒体</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>面談数</th><th>面談→推薦率</th>' +
+    '<th>媒体</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>登録→推薦率</th>' +
     '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th>' +
     '</tr></thead><tbody>';
   const totals = { scoutTotal:0, leadTotal:0, interviews:0, recUnique:0, offers:0, accepts:0 };
@@ -1342,7 +1387,7 @@ function renderMediaTable() {
 
   // 【バグ修正】この表の「合計」は従来SOURCE_LIST（登録済み媒体11件）のみを合算していたため、
   // candidates.sourceがそのどれとも一致しない候補者（未設定・自由入力・レガシーデータ等）が
-  // 合計から漏れ、月次一覧／当月ファネル／ダッシュボードの面談数（全候補者ベース）と合計がズレていた。
+  // 合計から漏れ、月次一覧／当月ファネル／ダッシュボードの候補者登録数（全候補者ベース）と合計がズレていた。
   // ここでSOURCE_LISTに含まれないsourceの候補者を「その他（未分類）」行としてすくい上げ、合計に含める。
   const otherCandidates = CANDIDATE_DATA.filter(c => memberIds.includes(c.member_id) && !SOURCE_LIST.includes(cleanSource(c.source)));
   if (otherCandidates.length) {
@@ -1416,7 +1461,7 @@ function openMediaModal(source) {
     return '<div style="padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:12.5px">' +
       '<div style="font-weight:600;margin-bottom:2px">' + ym + '</div>' +
       '<div style="color:#6B7A99">スカウト' + d.scoutTotal + '件 / リード' + d.leadTotal + '件 / 返信率' + fmtPct(d.replyRate) +
-      ' ／ 面談' + d.interviews + '件 ／ 推薦' + d.recUnique + '名（' + fmtPct(d.interviewToRecRate) + '）' +
+      ' ／ 登録' + d.interviews + '件 ／ 推薦' + d.recUnique + '名（' + fmtPct(d.interviewToRecRate) + '）' +
       ' ／ 内定' + d.offers + '名（' + fmtPct(d.recToOfferRate) + '）／ 承諾' + d.accepts + '名（' + fmtPct(d.offerToAcceptRate) + '）</div>' +
       '</div>';
   }).join('');
