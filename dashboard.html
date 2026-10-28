@@ -209,7 +209,6 @@ let PIPELINE_DATA = [];
 let PHASE_HISTORY = [];
 let CANDIDATE_DATA = [];
 let TARGETS = [];
-let REVENUE_BY_MEMBER = {};
 let MEDIA_FEE_RATES = [];
 let currentMember = '全員';
 let currentMonth = '';
@@ -323,11 +322,10 @@ async function loadData() {
     return all;
   }
 
-  const [{ data: members }, candidates, { data: targets }, { data: revenueView }, { data: feeRates }, pipeline, phaseHistory] = await Promise.all([
+  const [{ data: members }, candidates, { data: targets }, { data: feeRates }, pipeline, phaseHistory] = await Promise.all([
     sb.from('members').select('*'),
     fetchAllCandidates(),
     sb.from('targets').select('*,members(name,display_name)'),
-    sb.from('revenue_forecast_by_member').select('*'),
     sb.from('media_fee_rates').select('*'),
     fetchAllPipeline(),
     fetchAllPhaseHistory()
@@ -340,10 +338,6 @@ async function loadData() {
   CANDIDATE_DATA = candidates || [];
   TARGETS = targets || [];
   MEDIA_FEE_RATES = feeRates || [];
-  REVENUE_BY_MEMBER = {};
-  (revenueView || []).forEach(function(r) {
-    REVENUE_BY_MEMBER[r.member_id] = Math.round(r.revenue_forecast_sum || 0);
-  });
 
   document.getElementById('header-badge').textContent = currentMonth;
   const me = MEMBERS.find(function(m) { return m.email === CURRENT_USER_EMAIL; });
