@@ -152,6 +152,11 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,sans-ser
     <div class="tag-filters" id="ms-scout-media" style="margin-bottom:16px"></div>
     <div style="font-size:12px;color:#6B7A99;margin-bottom:6px">返信率の計算から除外する媒体（候補者登録数には引き続きカウントされます。例：レバテックダイレクトなど自分でスカウトを打たない媒体）</div>
     <div class="tag-filters" id="ms-exclude-media" style="margin-bottom:16px"></div>
+    <div style="font-size:12px;color:#6B7A99;margin-bottom:6px">リード獲得数の集計方法（2026年8月以降の月に適用。それより前の月は手入力値を使います）</div>
+    <div style="display:flex;gap:16px;font-size:13px;margin-bottom:16px">
+      <label style="cursor:pointer"><input type="radio" name="ms-lead-mode" value="auto"> 自動（候補者登録数）</label>
+      <label style="cursor:pointer"><input type="radio" name="ms-lead-mode" value="manual"> 手入力</label>
+    </div>
     <div class="form-actions">
       <button class="btn-cancel" onclick="closeMediaSettingsModal()">キャンセル</button>
       <button class="btn-save" onclick="saveMediaSettings()">保存</button>
@@ -513,6 +518,7 @@ function computeBaseMetric(key, pipelineItems, candidateItems, month, sourceFilt
     case 'offer_unique': return countUniquePhaseReachedInMonth(pipelineItems, '内定', month);
     case 'accept': return countPhaseReachedInMonth(pipelineItems, '内定承諾', month);
     case 'interviews': return candidateItems.filter(c => (c.registered_at||'').substring(0,7) === month).length;
+    case 'interviews_done': return countInterviewsDone(candidateItems, function(ym) { return ym === month; });
     case 'recommend_deal': return countRecommendsDeal(pipelineItems, month);
     case 'recommend_unique': return countRecommendsUnique(candidateItems, month);
     case 'recommends': {
@@ -522,7 +528,7 @@ function computeBaseMetric(key, pipelineItems, candidateItems, month, sourceFilt
     case 'revenue': return sumActualRevenueForMonths(pipelineItems, candidateItems, [month]);
     case 'profit': return sumGrossProfitForMonths(candidateItems, [month]);
     case 'scout': return sourceFilter ? sumManualBySource(pipelineItems, month, 'scout_count', sourceFilter) : sumManual(pipelineItems, month, 'scout_count');
-    case 'lead': return sourceFilter ? sumManualBySource(pipelineItems, month, 'lead_count', sourceFilter) : sumManual(pipelineItems, month, 'lead_count');
+    case 'lead': return leadTotalFor(leadMemberIdsForCurrentTab(), function(ym) { return ym === month; }, sourceFilter ? function(s) { return cleanSource(s) === sourceFilter; } : function() { return true; });
     case 'withdrawal': {
       const mids = [...new Set(pipelineItems.map(p => p.member_id).filter(Boolean))];
       return mids.reduce((s,mid) => { const r = RISK_INPUTS.find(x => x.member_id===mid && x.year_month===month); return s + ((r && r.withdrawal_count) || 0); }, 0);
@@ -545,10 +551,60 @@ function sumManualBySource(pipelineItems, month, field, source) {
   return MANUAL_KPI.filter(m => m.year_month === month && m.source === source && memberIds.has(m.member_id)).reduce((s,m) => s + (m[field]||0), 0);
 }
 
+// ============ 面談数・リード獲得数（2026/11 定義見直し） ============
+// 面談数＝候補者のフェーズを「初回面談DONE」以降に初めて変更した日（candidates.first_interview_at＝初回面談日）の月で数える。
+// 初回面談日はDBトリガー（set_candidate_first_interview_at）がJSTの日付で自動記録する（どの画面からフェーズを変えても記録される）。
+// 記録がない過去の候補者は、現在のフェーズが初回面談DONE以降であれば登録日（registered_at）の月で代用する。
+const INTERVIEW_DONE_PHASES = ['初回面談DONE','求人提案なう','推薦するやでぃ','選考なう','内定KITAAA','内定承諾歓喜','入社後フォローしようね'];
+function interviewMonthOf(c) {
+  if (c.first_interview_at) return String(c.first_interview_at).substring(0,7);
+  if (INTERVIEW_DONE_PHASES.includes(c.phase)) return (c.registered_at||'').substring(0,7) || null;
+  return null;
+}
+function countInterviewsDone(candidateItems, monthOk) {
+  return candidateItems.filter(function(c) { const ym = interviewMonthOf(c); return ym && monthOk(ym); }).length;
+}
+// リード獲得数＝メンバーごとに「自動（候補者登録数）／手入力」を切り替える（members.lead_count_mode：'auto'／'manual'）。
+// 自動はLEAD_AUTO_START_MONTH以降の月のみ。それより前の月は設定によらず手入力値（バックフィル含む）を使う。
+// 手入力のデータ（manual_kpi_inputs.lead_count）は自動のメンバーでも削除せず保持する（手入力に戻せば元の表示に戻る）。
+const LEAD_AUTO_START_MONTH = '2026-08';
+function isLeadAutoMember(memberId) {
+  const m = MEMBERS.find(function(x) { return x.id === memberId; });
+  return !!(m && m.lead_count_mode === 'auto');
+}
+function leadUsesAuto(memberId, ym) { return ym >= LEAD_AUTO_START_MONTH && isLeadAutoMember(memberId); }
+// monthOk(年月)・sourceOk(媒体名)で絞り込んだリード獲得数の合計（手入力分＋自動分）。
+// opts.autoOnly=trueなら自動分のみ（「その他（未分類）」行など、手入力の仕組みがない区分用）
+function leadTotalFor(memberIds, monthOk, sourceOk, opts) {
+  opts = opts || {};
+  let total = 0;
+  if (!opts.autoOnly) {
+    MANUAL_KPI.forEach(function(r) {
+      if (!memberIds.includes(r.member_id) || !monthOk(r.year_month) || !sourceOk(r.source)) return;
+      if (leadUsesAuto(r.member_id, r.year_month)) return; // 自動の月は手入力値を使わない
+      total += (r.lead_count||0);
+    });
+  }
+  CANDIDATE_DATA.forEach(function(c) {
+    const ym = (c.registered_at||'').substring(0,7);
+    if (!ym || !memberIds.includes(c.member_id) || !monthOk(ym) || !leadUsesAuto(c.member_id, ym)) return;
+    if (!sourceOk(cleanSource(c.source))) return;
+    total++;
+  });
+  return total;
+}
+// 現在のタブの対象メンバーID（「全員」は手入力の従来仕様に合わせて全メンバー）
+function leadMemberIdsForCurrentTab() {
+  if (currentMember === '全員') return MEMBERS.map(function(m) { return m.id; });
+  const m = MEMBERS.find(function(x) { return x.name === MEMBER_MAP[currentMember]; });
+  return m ? [m.id] : [];
+}
+
 const BASE_METRIC_OPTIONS = [
   { key: 'scout', label: 'スカウト数（手入力）' },
-  { key: 'lead', label: 'リード獲得数（手入力）' },
+  { key: 'lead', label: 'リード獲得数' },
   { key: 'interviews', label: '候補者登録数' },
+  { key: 'interviews_done', label: '面談数（初回面談DONE以降）' },
   { key: 'recommend_deal', label: '推薦件数（延べ・応募承諾到達）' },
   { key: 'recommend_unique', label: '推薦人数（ユニーク）' },
   { key: 'recommends', label: '推薦数（手入力合計）' },
@@ -576,6 +632,7 @@ function render() {
 
   // ===== ファネル（スカウト〜内定承諾） =====
   const interviews = computeBaseMetric('interviews', myPipeline, myCandidates, currentMonth);
+  const interviewsDone = computeBaseMetric('interviews_done', myPipeline, myCandidates, currentMonth);
   const recUnique = countRecommendsUnique(myCandidates, currentMonth);
   const casualDeal = countPhaseReachedInMonth(myPipeline, 'カジュアル面談', currentMonth);
   const firstDeal = countPhaseReachedInMonth(myPipeline, '一次面接', currentMonth) + countSkippedPhaseReachedInMonth(myPipeline, ['カジュアル面談','一次面接'], AFTER_FIRST_INTERVIEW_PHASES, currentMonth);
@@ -595,7 +652,8 @@ function render() {
 
   const recommendActual = memberIds.reduce((s,mid) => { const t = TARGETS.find(t => t.member_id===mid && t.year_month===currentMonth); return s + ((t && t.recommend_actual) || 0); }, 0);
   const avgRecommendPerPerson = recUnique ? recommendActual / recUnique : null;
-  const interviewToRecommendRate = interviews ? recUnique/interviews : null;
+  const interviewToRecommendRate = interviewsDone ? recUnique/interviewsDone : null; // 面談→推薦率
+  const registerToInterviewRate = interviews ? interviewsDone/interviews : null; // 登録→面談率
   const docPassRate = recommendActual ? casualOrFirstDeal/recommendActual : null;
   const firstToFinalRate = firstDeal ? finalDeal/firstDeal : null;
   const finalToOfferRate = finalDeal ? offerDeal/finalDeal : null;
@@ -623,7 +681,7 @@ function render() {
   html += '<div class="section-block">';
   html += '<div class="sec-header"><span class="bar" style="background:#0D40D9"></span><span class="title">当月ファネル（スカウト〜内定承諾）</span><span class="sub">' + currentMonth + '・下段は目標値</span></div>';
   html += '<div style="text-align:right;margin-bottom:10px;display:flex;justify-content:flex-end;gap:8px">';
-  html += '<button class="edit-toggle-btn" onclick="openMediaSettingsModal()">⚙️ 集計対象媒体を設定</button>';
+  html += '<button class="edit-toggle-btn" onclick="openMediaSettingsModal()">⚙️ 集計対象媒体・リード集計方法を設定</button>';
   if (currentMember !== '全員') {
     const meForTarget = MEMBERS.find(m => m.name === MEMBER_MAP[currentMember]);
     html += '<button class="edit-toggle-btn" onclick="openPhaseTargetModal(\'' + meForTarget.id + '\')">✏️ フェーズ別目標を編集</button>';
@@ -633,17 +691,19 @@ function render() {
     { label: 'スカウト通数', value: scoutCount + '件', target: tScout || null },
     { label: 'リード獲得数', value: leadCount + '件', rate: replyRateInfo.rate, targetRate: tScoutToLeadRate, target: tLead || null },
     { label: '候補者登録', value: interviews + '件', rate: leadToInterviewRate, targetRate: tLeadToInterviewRate, target: tInterview || null },
+    { label: '面談', value: interviewsDone + '件', rate: registerToInterviewRate, target: null },
     { label: '推薦', value: dealUniqueLabel(recommendActual, recUnique), rate: interviewToRecommendRate, target: tRecommend || null },
     { label: 'カジュアル面談+一次面接', value: dealUniqueLabel(casualOrFirstDeal, casualOrFirstUnique), rate: docPassRate, targetRate: tDocPassRate, target: (tCasual+tFirst) || null },
     { label: '最終面接', value: dealUniqueLabel(finalDeal, finalUnique), rate: firstToFinalRate, targetRate: tFirstToFinalRate, target: tFinal || null },
     { label: '内定', value: dealUniqueLabel(offerDeal, offerUnique), rate: finalToOfferRate, targetRate: tFinalToOfferRate, target: tOffer || null },
     { label: '内定承諾', value: dealUniqueLabel(acceptDeal, acceptUnique), rate: offerToAcceptRate, targetRate: tAcceptRate, target: tAccept || null },
   ]);
-  html += '<div style="font-size:11px;color:#9aa3b8;margin-top:6px">リード獲得数の遷移率は返信率・書類通過率はカジュアル面談＋一次面接の合算（延べ件数）で計算・集計対象媒体は⚙️から設定できます（除外した媒体の候補者登録数は引き続きカウントされます）</div>';
+  html += '<div style="font-size:11px;color:#9aa3b8;margin-top:6px">リード獲得数の遷移率は返信率・書類通過率はカジュアル面談＋一次面接の合算（延べ件数）で計算・集計対象媒体とリード獲得数の集計方法（自動／手入力）は⚙️から設定できます（除外した媒体の候補者登録数は引き続きカウントされます）・面談は初回面談DONE以降のフェーズに初めて変更した月で集計</div>';
 
   html += '<div class="kpi-grid" style="margin-top:16px">';
   html += kpiCard('返信率', fmtPct(replyRateInfo.rate), replyRateInfo.scoutSum + '件 → ' + replyRateInfo.leadSum + '件（除外媒体を除く）');
   html += kpiCard('候補者登録数', interviews + '件', '');
+  html += kpiCard('面談数', interviewsDone + '件', '初回面談DONE以降に到達した人数');
   html += kpiCard('推薦数', recommendActual + '件', '手入力実績');
   html += kpiCard('一次面接数', casualOrFirstDeal + '件', 'カジュアル面談+一次面接（延べ）');
   html += kpiCard('内定数', offerDeal + '件', '延べ件数');
@@ -1069,19 +1129,21 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
     const scoutCount = computeScoutCount(m, memberIds);
     const leadCount = computeReplyRate(m, memberIds).leadSum;
     const interviews = candidateItems.filter(function(c){return (c.registered_at||'').substring(0,7)===m;}).length;
+    const interviewsDone = countInterviewsDone(candidateItems, function(ym) { return ym === m; });
     const recUnique = recommendCountForMonth(null, m, memberIds, candidateItems);
     const recDeal = m < SYSTEM_START_MONTH ? memberMonthlySum('recommend_deal', m, memberIds) : recommendActualForMonth(m, memberIds);
     const firstI = m < SYSTEM_START_MONTH ? memberMonthlySum('first_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '一次面接', m) + countSkippedPhaseReachedInMonth(pipelineItems, ['カジュアル面談','一次面接'], AFTER_FIRST_INTERVIEW_PHASES, m);
     const finalI = m < SYSTEM_START_MONTH ? memberMonthlySum('final_interview_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '最終面接', m) + countSkippedPhaseReachedInMonth(pipelineItems, ['最終面接'], AFTER_FINAL_INTERVIEW_PHASES, m);
     const offerCount = m < SYSTEM_START_MONTH ? memberMonthlySum('offer_deal_count', m, memberIds) : countPhaseReachedInMonth(pipelineItems, '内定', m);
     const acceptCount = countPhaseReachedInMonth(pipelineItems, '内定承諾', m);
-    return { scoutCount, leadCount, interviews, recUnique, recDeal, firstI, finalI, offerCount, acceptCount };
+    return { scoutCount, leadCount, interviews, interviewsDone, recUnique, recDeal, firstI, finalI, offerCount, acceptCount };
   }
   // 各指標の間の遷移率（推薦人数の直後の推薦数には遷移率を出さず、一次面接数への遷移率は推薦数を分母にする）
   const FUNNEL_STEPS = [
     { key: 'scoutCount', label: 'スカウト通数' },
     { key: 'leadCount', label: 'リード獲得数' },
     { key: 'interviews', label: '登録数' },
+    { key: 'interviewsDone', label: '面談数' },
     { key: 'recUnique', label: '推薦人数' },
     { key: 'recDeal', label: '推薦数', noRate: true },
     { key: 'firstI', label: '一次面接数' },
@@ -1113,7 +1175,7 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
 
   const monthly = months.map(function(m) { return { m: m, d: metricsForMonth(m) }; });
   const monthCount = monthly.length || 1;
-  const totalSum = { scoutCount:0, leadCount:0, interviews:0, recUnique:0, recDeal:0, firstI:0, finalI:0, offerCount:0, acceptCount:0 };
+  const totalSum = { scoutCount:0, leadCount:0, interviews:0, interviewsDone:0, recUnique:0, recDeal:0, firstI:0, finalI:0, offerCount:0, acceptCount:0 };
   monthly.forEach(function(row) { Object.keys(totalSum).forEach(function(k) { totalSum[k] += row.d[k]; }); });
   // 1ヶ月あたり平均（率は合計件数から再計算するのでtotalSumの比率と一致する）
   const avg = {};
@@ -1133,14 +1195,14 @@ function renderMonthlyFunnelTables(pipelineItems, candidateItems, memberIds) {
 // ============ 月次一覧（直近6ヶ月）：媒体別（縦軸=月、横軸=指標） ============
 // 集計値（件数はSUM、率は分子分母を積み上げてから再計算）をまとめて返す
 function aggregateMediaMetrics(source, months, memberIds) {
-  const agg = { scoutTotal:0, leadTotal:0, interviews:0, recUnique:0, offers:0, accepts:0 };
+  const agg = { scoutTotal:0, leadTotal:0, interviews:0, interviewsDone:0, recUnique:0, offers:0, accepts:0 };
   months.forEach(function(m) {
     const d = computeMediaMetricsForMonth(source, m, memberIds);
-    agg.scoutTotal += d.scoutTotal; agg.leadTotal += d.leadTotal; agg.interviews += d.interviews;
+    agg.scoutTotal += d.scoutTotal; agg.leadTotal += d.leadTotal; agg.interviews += d.interviews; agg.interviewsDone += d.interviewsDone;
     agg.recUnique += d.recUnique; agg.offers += d.offers; agg.accepts += d.accepts;
   });
   return {
-    scoutTotal: agg.scoutTotal, leadTotal: agg.leadTotal, interviews: agg.interviews,
+    scoutTotal: agg.scoutTotal, leadTotal: agg.leadTotal, interviews: agg.interviews, interviewsDone: agg.interviewsDone,
     recUnique: agg.recUnique, offers: agg.offers, accepts: agg.accepts,
     replyRate: agg.scoutTotal ? agg.leadTotal/agg.scoutTotal : null,
     interviewToRecRate: agg.interviews ? agg.recUnique/agg.interviews : null,
@@ -1151,7 +1213,7 @@ function aggregateMediaMetrics(source, months, memberIds) {
 }
 function mediaMetricsRowHtml(label, d) {
   return '<tr><td>' + label + '</td><td>' + d.scoutTotal + '</td><td>' + d.leadTotal + '</td><td>' + fmtPct(d.replyRate) + '</td>' +
-    '<td>' + d.interviews + '</td><td>' + fmtPct(d.interviewToRecRate) + '</td>' +
+    '<td>' + d.interviews + '</td><td>' + d.interviewsDone + '</td><td>' + fmtPct(d.interviewToRecRate) + '</td>' +
     '<td>' + d.recUnique + '</td><td>' + fmtPct(d.recToOfferRate) + '</td>' +
     '<td>' + d.offers + '</td><td>' + fmtPct(d.offerToAcceptRate) + '</td>' +
     '<td>' + d.accepts + '</td><td>' + fmtPct(d.interviewToAcceptRate) + '</td></tr>';
@@ -1164,7 +1226,7 @@ function renderMonthlyMediaTables(memberIds) {
     html += '<div style="font-size:12px;color:#6B7A99;margin:14px 0 4px;font-weight:500">' + source + '</div>';
     // ---- サマリー（直近4ヶ月・全期間） ----
     html += '<table class="media-summary-table"><thead><tr>' +
-      '<th>期間</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>登録→推薦率</th>' +
+      '<th>期間</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>面談数</th><th>登録→推薦率</th>' +
       '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>登録→承諾率</th>' +
       '</tr></thead><tbody>';
     html += mediaMetricsRowHtml('直近4ヶ月', aggregateMediaMetrics(source, recentMonths, memberIds));
@@ -1172,7 +1234,7 @@ function renderMonthlyMediaTables(memberIds) {
     html += '</tbody></table>';
     // ---- 月別詳細（枠内スクロール・先頭行/列固定・4ヶ月分くらいの高さ） ----
     html += '<div class="monthly-scroll-wrap" style="max-height:210px"><table class="media-table"><thead><tr>' +
-      '<th>月</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>登録→推薦率</th>' +
+      '<th>月</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>面談数</th><th>登録→推薦率</th>' +
       '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>登録→承諾率</th>' +
       '</tr></thead><tbody>';
     months.forEach(function(m) {
@@ -1199,16 +1261,17 @@ function toggleEditMode() { editMode = !editMode; render(); }
 // ============ 媒体別（月×指標）を計算する共通ヘルパー ============
 function computeMediaMetricsForMonth(source, month, memberIds) {
   const scoutTotal = MANUAL_KPI.filter(m => m.year_month===month && m.source===source && memberIds.includes(m.member_id)).reduce((s,m)=>s+(m.scout_count||0),0);
-  const leadTotal = MANUAL_KPI.filter(m => m.year_month===month && m.source===source && memberIds.includes(m.member_id)).reduce((s,m)=>s+(m.lead_count||0),0);
+  const leadTotal = leadTotalFor(memberIds, function(ym) { return ym === month; }, function(s) { return cleanSource(s) === source; });
   const srcCandidates = CANDIDATE_DATA.filter(c => cleanSource(c.source) === source && memberIds.includes(c.member_id));
   const srcCandidateIds = new Set(srcCandidates.map(c => c.id));
   const interviews = srcCandidates.filter(c => (c.registered_at||'').substring(0,7) === month).length;
+  const interviewsDone = countInterviewsDone(srcCandidates, function(ym) { return ym === month; });
   const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
   const recUnique = recommendCountForMonth(source, month, memberIds, srcCandidates);
   const offers = offerUniqueCountForMonth(source, month, memberIds, srcPipeline);
   const accepts = acceptUniqueCountForMonth(source, month, memberIds, srcPipeline);
   return {
-    scoutTotal, leadTotal, interviews, recUnique, offers, accepts,
+    scoutTotal, leadTotal, interviews, interviewsDone, recUnique, offers, accepts,
     replyRate: scoutTotal ? leadTotal/scoutTotal : null,
     interviewToRecRate: interviews ? recUnique/interviews : null,
     recToOfferRate: recUnique ? offers/recUnique : null,
@@ -1229,7 +1292,13 @@ function computeMediaPeriodStats(source, monthList, memberIds) {
     return !excluded.has(m.source);
   });
   const scoutTotal = scoutLeadRows.reduce((s,m)=>s+(m.scout_count||0),0);
-  const leadTotal = scoutLeadRows.reduce((s,m)=>s+(m.lead_count||0),0);
+  // リード獲得数は自動／手入力の設定に従う（合計のときはメンバーごとの除外媒体を反映）
+  const leadTotal = memberIds.reduce(function(sum, mid) {
+    const mem = MEMBERS.find(x => x.id === mid);
+    const excluded = new Set((mem && mem.reply_rate_excluded_media) || []);
+    const sourceOk = source !== null ? function(s) { return cleanSource(s) === source; } : function(s) { return !excluded.has(s); };
+    return sum + leadTotalFor([mid], inPeriod, sourceOk);
+  }, 0);
   const srcCandidates = CANDIDATE_DATA.filter(c => memberIds.includes(c.member_id) && (source === null || cleanSource(c.source) === source));
   const srcCandidateIds = new Set(srcCandidates.map(c => c.id));
   const interviews = srcCandidates.filter(c => inPeriod((c.registered_at||'').substring(0,7))).length;
@@ -1340,24 +1409,26 @@ function allMonthsInRange(startYM, endYM) {
 function renderMediaTable() {
   const memberIds = currentMember === '全員' ? SALES_MEMBERS.map(m => m.id) : [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
   let html = '<div class="monthly-scroll-wrap" style="max-height:360px"><table class="media-table"><thead><tr>' +
-    '<th>媒体</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>登録→推薦率</th>' +
+    '<th>媒体</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>面談数</th><th>登録→推薦率</th>' +
     '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th>' +
     '</tr></thead><tbody>';
-  const totals = { scoutTotal:0, leadTotal:0, interviews:0, recUnique:0, offers:0, accepts:0 };
+  const totals = { scoutTotal:0, leadTotal:0, interviews:0, interviewsDone:0, recUnique:0, offers:0, accepts:0 };
+  const leadAutoForEdit = currentMember !== '全員' && leadUsesAuto(memberIds[0], currentMonth); // 自動のメンバー・月はリード数を入力させない
   SOURCE_LIST.forEach(function(source) {
     const scoutTotal = MANUAL_KPI.filter(m => m.year_month===currentMonth && m.source===source && memberIds.includes(m.member_id)).reduce((s,m)=>s+(m.scout_count||0),0);
-    const leadTotal = MANUAL_KPI.filter(m => m.year_month===currentMonth && m.source===source && memberIds.includes(m.member_id)).reduce((s,m)=>s+(m.lead_count||0),0);
+    const leadTotal = leadTotalFor(memberIds, function(ym) { return ym === currentMonth; }, function(s) { return cleanSource(s) === source; });
     const replyRate = scoutTotal ? leadTotal/scoutTotal : null;
 
     const srcCandidates = CANDIDATE_DATA.filter(c => cleanSource(c.source) === source && memberIds.includes(c.member_id));
     const srcCandidateIds = new Set(srcCandidates.map(c => c.id));
     const interviews = srcCandidates.filter(c => (c.registered_at||'').substring(0,7) === currentMonth).length;
+    const interviewsDone = countInterviewsDone(srcCandidates, function(ym) { return ym === currentMonth; });
     const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
     const recUnique = recommendCountForMonth(source, currentMonth, memberIds, srcCandidates);
     const offers = offerUniqueCountForMonth(source, currentMonth, memberIds, srcPipeline);
     const accepts = acceptUniqueCountForMonth(source, currentMonth, memberIds, srcPipeline);
 
-    totals.scoutTotal += scoutTotal; totals.leadTotal += leadTotal; totals.interviews += interviews;
+    totals.scoutTotal += scoutTotal; totals.leadTotal += leadTotal; totals.interviews += interviews; totals.interviewsDone += interviewsDone;
     totals.recUnique += recUnique; totals.offers += offers; totals.accepts += accepts;
 
     const interviewToRecRate = interviews ? recUnique/interviews : null;
@@ -1370,12 +1441,17 @@ function renderMediaTable() {
       const memberId = memberIds[0];
       const existing = MANUAL_KPI.find(m => m.member_id===memberId && m.source===source && m.year_month===currentMonth);
       html += '<td><input class="media-input" type="number" id="scout-' + encodeURIComponent(source) + '" value="' + (existing ? existing.scout_count||'' : '') + '" onchange="saveManualInput(\'' + memberId + '\',\'' + source + '\')"></td>';
-      html += '<td><input class="media-input" type="number" id="lead-' + encodeURIComponent(source) + '" value="' + (existing ? existing.lead_count||'' : '') + '" onchange="saveManualInput(\'' + memberId + '\',\'' + source + '\')"></td>';
+      if (leadAutoForEdit) {
+        html += '<td title="リード獲得数は自動集計（候補者登録数）です。⚙️から手入力に切り替えられます">' + leadTotal + '<span style="font-size:10px;color:#9aa3b8"> 自動</span></td>';
+      } else {
+        html += '<td><input class="media-input" type="number" id="lead-' + encodeURIComponent(source) + '" value="' + (existing ? existing.lead_count||'' : '') + '" onchange="saveManualInput(\'' + memberId + '\',\'' + source + '\')"></td>';
+      }
     } else {
       html += '<td>' + scoutTotal + '</td><td>' + leadTotal + '</td>';
     }
     html += '<td>' + fmtPct(replyRate) + '</td>';
     html += '<td>' + interviews + '</td>';
+    html += '<td>' + interviewsDone + '</td>';
     html += '<td>' + fmtPct(interviewToRecRate) + '</td>';
     html += '<td>' + recUnique + '</td>';
     html += '<td>' + fmtPct(recToOfferRate) + '</td>';
@@ -1394,6 +1470,9 @@ function renderMediaTable() {
     const otherLabel = 'その他（未分類・source: ' + Array.from(new Set(otherCandidates.map(c => cleanSource(c.source) || '(未設定)'))).join('／') + '）';
     const otherCandidateIds = new Set(otherCandidates.map(c => c.id));
     const otherInterviews = otherCandidates.filter(c => (c.registered_at||'').substring(0,7) === currentMonth).length;
+    const otherInterviewsDone = countInterviewsDone(otherCandidates, function(ym) { return ym === currentMonth; });
+    // リード獲得数：手入力は集計対象媒体専用のため対象外。自動のメンバー分（媒体未設定・リスト外の候補者登録数）のみ計上
+    const otherLead = leadTotalFor(memberIds, function(ym) { return ym === currentMonth; }, function(s) { return !SOURCE_LIST.includes(s); }, { autoOnly: true });
     const otherPipeline = PIPELINE_DATA.filter(p => p.candidate_id && otherCandidateIds.has(p.candidate_id));
     // 手入力(MANUAL_KPI)は集計対象媒体（SOURCE_LIST）専用の仕組みのため、その他行のスカウト数・リード獲得数は対象外（常に0扱い）
     // 「__uncategorized__」は既存のsource値と絶対に一致しないダミー値。SYSTEM_START_MONTHより前の月でMANUAL_KPIの
@@ -1402,7 +1481,7 @@ function renderMediaTable() {
     const offers = offerUniqueCountForMonth('__uncategorized__', currentMonth, memberIds, otherPipeline);
     const accepts = acceptUniqueCountForMonth('__uncategorized__', currentMonth, memberIds, otherPipeline);
 
-    totals.interviews += otherInterviews;
+    totals.interviews += otherInterviews; totals.interviewsDone += otherInterviewsDone; totals.leadTotal += otherLead;
     totals.recUnique += recUnique; totals.offers += offers; totals.accepts += accepts;
 
     const interviewToRecRate = otherInterviews ? recUnique/otherInterviews : null;
@@ -1411,8 +1490,9 @@ function renderMediaTable() {
 
     html += '<tr style="color:#b3261e">';
     html += '<td title="集計対象媒体（SOURCE_LIST）に含まれない候補者。候補者管理で流入経路を見直すことをおすすめします">' + otherLabel + '</td>';
-    html += '<td>-</td><td>-</td><td>-</td>';
+    html += '<td>-</td><td>' + (otherLead || '-') + '</td><td>-</td>';
     html += '<td>' + otherInterviews + '</td>';
+    html += '<td>' + otherInterviewsDone + '</td>';
     html += '<td>' + fmtPct(interviewToRecRate) + '</td>';
     html += '<td>' + recUnique + '</td>';
     html += '<td>' + fmtPct(recToOfferRate) + '</td>';
@@ -1428,7 +1508,7 @@ function renderMediaTable() {
   const totalOfferToAcceptRate = totals.offers ? totals.accepts/totals.offers : null;
   html += '<tr style="font-weight:700;background:#f4f4f0">' +
     '<td>合計</td><td>' + totals.scoutTotal + '</td><td>' + totals.leadTotal + '</td><td>' + fmtPct(totalReplyRate) + '</td>' +
-    '<td>' + totals.interviews + '</td><td>' + fmtPct(totalInterviewToRecRate) + '</td>' +
+    '<td>' + totals.interviews + '</td><td>' + totals.interviewsDone + '</td><td>' + fmtPct(totalInterviewToRecRate) + '</td>' +
     '<td>' + totals.recUnique + '</td><td>' + fmtPct(totalRecToOfferRate) + '</td>' +
     '<td>' + totals.offers + '</td><td>' + fmtPct(totalOfferToAcceptRate) + '</td><td>' + totals.accepts + '</td></tr>';
   html += '</tbody></table></div>';
@@ -1438,13 +1518,14 @@ function renderMediaTable() {
 async function saveManualInput(memberId, source) {
   const key = encodeURIComponent(source);
   const scoutVal = document.getElementById('scout-' + key).value;
-  const leadVal = document.getElementById('lead-' + key).value;
+  const leadEl = document.getElementById('lead-' + key);
   const payload = {
     member_id: memberId, source: source, year_month: currentMonth,
     scout_count: scoutVal ? parseInt(scoutVal) : null,
-    lead_count: leadVal ? parseInt(leadVal) : null,
     updated_at: new Date().toISOString(),
   };
+  // リード獲得数が自動のメンバー・月は入力欄がないため、既存の手入力値を上書きしない
+  if (leadEl) payload.lead_count = leadEl.value ? parseInt(leadEl.value) : null;
   const { error } = await sb.from('manual_kpi_inputs').upsert(payload, { onConflict: 'member_id,source,year_month' });
   if (error) { alert('保存に失敗しました: ' + error.message); return; }
   const { data } = await sb.from('manual_kpi_inputs').select('*');
@@ -1461,7 +1542,7 @@ function openMediaModal(source) {
     return '<div style="padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:12.5px">' +
       '<div style="font-weight:600;margin-bottom:2px">' + ym + '</div>' +
       '<div style="color:#6B7A99">スカウト' + d.scoutTotal + '件 / リード' + d.leadTotal + '件 / 返信率' + fmtPct(d.replyRate) +
-      ' ／ 登録' + d.interviews + '件 ／ 推薦' + d.recUnique + '名（' + fmtPct(d.interviewToRecRate) + '）' +
+      ' ／ 登録' + d.interviews + '件 ／ 面談' + d.interviewsDone + '件 ／ 推薦' + d.recUnique + '名（' + fmtPct(d.interviewToRecRate) + '）' +
       ' ／ 内定' + d.offers + '名（' + fmtPct(d.recToOfferRate) + '）／ 承諾' + d.accepts + '名（' + fmtPct(d.offerToAcceptRate) + '）</div>' +
       '</div>';
   }).join('');
@@ -1509,7 +1590,7 @@ function openMediaSettingsModal() {
   const target = getMediaSettingsTargetMember();
   if (!target) { alert('対象メンバーの情報が取得できませんでした'); return; }
   mediaSettingsTargetMemberId = target.id;
-  document.getElementById('ms-modal-title').textContent = '集計対象媒体の設定（' + (target.display_name || target.name) + '）';
+  document.getElementById('ms-modal-title').textContent = '集計対象媒体・リード集計方法の設定（' + (target.display_name || target.name) + '）';
   const scoutSelected = new Set(target.scout_count_media || []);
   const excludeSelected = new Set(target.reply_rate_excluded_media || []);
   document.getElementById('ms-scout-media').innerHTML = SOURCE_LIST.map(s =>
@@ -1518,6 +1599,8 @@ function openMediaSettingsModal() {
   document.getElementById('ms-exclude-media').innerHTML = SOURCE_LIST.map(s =>
     '<span class="tag' + (excludeSelected.has(s)?' on':'') + '" data-media="' + s + '" onclick="this.classList.toggle(\'on\')">' + s + '</span>'
   ).join('');
+  const leadMode = target.lead_count_mode === 'auto' ? 'auto' : 'manual';
+  document.querySelectorAll('input[name="ms-lead-mode"]').forEach(function(el) { el.checked = el.value === leadMode; });
   document.getElementById('media-settings-modal').classList.add('open');
   mediaSettingsModalDirty = false;
 }
@@ -1532,17 +1615,22 @@ document.getElementById('media-settings-modal').addEventListener('click', functi
 document.getElementById('media-settings-modal').addEventListener('click', function(e) {
   if (e.target.classList && e.target.classList.contains('tag')) mediaSettingsModalDirty = true;
 });
+document.getElementById('media-settings-modal').addEventListener('change', function(e) {
+  if (e.target && e.target.name === 'ms-lead-mode') mediaSettingsModalDirty = true;
+});
 
 async function saveMediaSettings() {
   const scoutMedia = Array.from(document.querySelectorAll('#ms-scout-media .tag.on')).map(el => el.dataset.media);
   const excludeMedia = Array.from(document.querySelectorAll('#ms-exclude-media .tag.on')).map(el => el.dataset.media);
   const targetId = mediaSettingsTargetMemberId;
   if (!targetId) { alert('対象メンバーの情報が取得できませんでした'); return; }
-  const { error } = await sb.from('members').update({ scout_count_media: scoutMedia, reply_rate_excluded_media: excludeMedia }).eq('id', targetId);
+  const leadModeEl = document.querySelector('input[name="ms-lead-mode"]:checked');
+  const leadMode = leadModeEl ? leadModeEl.value : 'manual';
+  const { error } = await sb.from('members').update({ scout_count_media: scoutMedia, reply_rate_excluded_media: excludeMedia, lead_count_mode: leadMode }).eq('id', targetId);
   if (error) { alert('保存に失敗しました: ' + error.message); return; }
-  if (ME && ME.id === targetId) { ME.scout_count_media = scoutMedia; ME.reply_rate_excluded_media = excludeMedia; }
+  if (ME && ME.id === targetId) { ME.scout_count_media = scoutMedia; ME.reply_rate_excluded_media = excludeMedia; ME.lead_count_mode = leadMode; }
   const m = MEMBERS.find(x => x.id === targetId);
-  if (m) { m.scout_count_media = scoutMedia; m.reply_rate_excluded_media = excludeMedia; }
+  if (m) { m.scout_count_media = scoutMedia; m.reply_rate_excluded_media = excludeMedia; m.lead_count_mode = leadMode; }
   mediaSettingsModalDirty = false;
   closeMediaSettingsModal();
   render();
@@ -1566,8 +1654,9 @@ function computeReplyRate(month, memberIds) {
     const excluded = new Set((m && m.reply_rate_excluded_media) || []);
     MANUAL_KPI.filter(r => r.year_month === month && r.member_id === mid && !excluded.has(r.source)).forEach(r => {
       scoutSum += (r.scout_count||0);
-      leadSum += (r.lead_count||0);
     });
+    // リード獲得数は自動（候補者登録数）／手入力の設定に従う（自動の場合も除外媒体の候補者は返信率の計算から外す）
+    leadSum += leadTotalFor([mid], function(ym) { return ym === month; }, function(s) { return !excluded.has(s); });
   });
   return { scoutSum, leadSum, rate: scoutSum ? leadSum/scoutSum : null };
 }
