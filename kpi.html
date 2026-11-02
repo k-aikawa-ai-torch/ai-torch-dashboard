@@ -1205,10 +1205,10 @@ function aggregateMediaMetrics(source, months, memberIds) {
     scoutTotal: agg.scoutTotal, leadTotal: agg.leadTotal, interviews: agg.interviews, interviewsDone: agg.interviewsDone,
     recUnique: agg.recUnique, offers: agg.offers, accepts: agg.accepts,
     replyRate: agg.scoutTotal ? agg.leadTotal/agg.scoutTotal : null,
-    interviewToRecRate: agg.interviews ? agg.recUnique/agg.interviews : null,
+    interviewToRecRate: agg.interviewsDone ? agg.recUnique/agg.interviewsDone : null, // 面談→推薦率
     recToOfferRate: agg.recUnique ? agg.offers/agg.recUnique : null,
     offerToAcceptRate: agg.offers ? agg.accepts/agg.offers : null,
-    interviewToAcceptRate: agg.interviews ? agg.accepts/agg.interviews : null,
+    interviewToAcceptRate: agg.interviewsDone ? agg.accepts/agg.interviewsDone : null, // 面談→承諾率
   };
 }
 function mediaMetricsRowHtml(label, d) {
@@ -1226,16 +1226,16 @@ function renderMonthlyMediaTables(memberIds) {
     html += '<div style="font-size:12px;color:#6B7A99;margin:14px 0 4px;font-weight:500">' + source + '</div>';
     // ---- サマリー（直近4ヶ月・全期間） ----
     html += '<table class="media-summary-table"><thead><tr>' +
-      '<th>期間</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>面談数</th><th>登録→推薦率</th>' +
-      '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>登録→承諾率</th>' +
+      '<th>期間</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>面談数</th><th>面談→推薦率</th>' +
+      '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>面談→承諾率</th>' +
       '</tr></thead><tbody>';
     html += mediaMetricsRowHtml('直近4ヶ月', aggregateMediaMetrics(source, recentMonths, memberIds));
     html += mediaMetricsRowHtml('全期間（' + months[0] + '〜' + months[months.length-1] + '）', aggregateMediaMetrics(source, months, memberIds));
     html += '</tbody></table>';
     // ---- 月別詳細（枠内スクロール・先頭行/列固定・4ヶ月分くらいの高さ） ----
     html += '<div class="monthly-scroll-wrap" style="max-height:210px"><table class="media-table"><thead><tr>' +
-      '<th>月</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>面談数</th><th>登録→推薦率</th>' +
-      '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>登録→承諾率</th>' +
+      '<th>月</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>面談数</th><th>面談→推薦率</th>' +
+      '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th><th>面談→承諾率</th>' +
       '</tr></thead><tbody>';
     months.forEach(function(m) {
       html += mediaMetricsRowHtml(m, computeMediaMetricsForMonth(source, m, memberIds));
@@ -1273,10 +1273,10 @@ function computeMediaMetricsForMonth(source, month, memberIds) {
   return {
     scoutTotal, leadTotal, interviews, interviewsDone, recUnique, offers, accepts,
     replyRate: scoutTotal ? leadTotal/scoutTotal : null,
-    interviewToRecRate: interviews ? recUnique/interviews : null,
+    interviewToRecRate: interviewsDone ? recUnique/interviewsDone : null, // 面談→推薦率
     recToOfferRate: recUnique ? offers/recUnique : null,
     offerToAcceptRate: offers ? accepts/offers : null,
-    interviewToAcceptRate: interviews ? accepts/interviews : null,
+    interviewToAcceptRate: interviewsDone ? accepts/interviewsDone : null, // 面談→承諾率
   };
 }
 
@@ -1301,7 +1301,7 @@ function computeMediaPeriodStats(source, monthList, memberIds) {
   }, 0);
   const srcCandidates = CANDIDATE_DATA.filter(c => memberIds.includes(c.member_id) && (source === null || cleanSource(c.source) === source));
   const srcCandidateIds = new Set(srcCandidates.map(c => c.id));
-  const interviews = srcCandidates.filter(c => inPeriod((c.registered_at||'').substring(0,7))).length;
+  const interviewsDone = countInterviewsDone(srcCandidates, inPeriod);
   const srcPipeline = PIPELINE_DATA.filter(p => p.candidate_id && srcCandidateIds.has(p.candidate_id));
   const months = monthList === null ? allMonthsInRange(getEffectiveStartMonth(memberIds), currentMonth) : monthList;
   const recUnique = months.reduce((s,ym) => s + recommendCountForMonth(source, ym, memberIds, srcCandidates), 0);
@@ -1309,14 +1309,14 @@ function computeMediaPeriodStats(source, monthList, memberIds) {
   const accepts = months.reduce((s,ym) => s + acceptUniqueCountForMonth(source, ym, memberIds, srcPipeline), 0);
   return {
     replyRate: scoutTotal ? leadTotal/scoutTotal : null,
-    interviewToRecRate: interviews ? recUnique/interviews : null,
+    interviewToRecRate: interviewsDone ? recUnique/interviewsDone : null, // 面談→推薦率
     recToOfferRate: recUnique ? offers/recUnique : null,
     offerToAcceptRate: offers ? accepts/offers : null,
   };
 }
 const MEDIA_RATE_METRICS = [
   { key: 'replyRate', label: '返信率' },
-  { key: 'interviewToRecRate', label: '登録→推薦率' },
+  { key: 'interviewToRecRate', label: '面談→推薦率' },
   { key: 'recToOfferRate', label: '推薦→内定率' },
   { key: 'offerToAcceptRate', label: '内定→承諾率' },
 ];
@@ -1409,7 +1409,7 @@ function allMonthsInRange(startYM, endYM) {
 function renderMediaTable() {
   const memberIds = currentMember === '全員' ? SALES_MEMBERS.map(m => m.id) : [MEMBERS.find(m => m.name === MEMBER_MAP[currentMember])?.id];
   let html = '<div class="monthly-scroll-wrap" style="max-height:360px"><table class="media-table"><thead><tr>' +
-    '<th>媒体</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>面談数</th><th>登録→推薦率</th>' +
+    '<th>媒体</th><th>スカウト数</th><th>リード獲得数</th><th>返信率</th><th>登録数</th><th>面談数</th><th>面談→推薦率</th>' +
     '<th>推薦人数</th><th>推薦→内定率</th><th>内定人数</th><th>内定→承諾率</th><th>承諾人数</th>' +
     '</tr></thead><tbody>';
   const totals = { scoutTotal:0, leadTotal:0, interviews:0, interviewsDone:0, recUnique:0, offers:0, accepts:0 };
@@ -1431,7 +1431,7 @@ function renderMediaTable() {
     totals.scoutTotal += scoutTotal; totals.leadTotal += leadTotal; totals.interviews += interviews; totals.interviewsDone += interviewsDone;
     totals.recUnique += recUnique; totals.offers += offers; totals.accepts += accepts;
 
-    const interviewToRecRate = interviews ? recUnique/interviews : null;
+    const interviewToRecRate = interviewsDone ? recUnique/interviewsDone : null; // 面談→推薦率
     const recToOfferRate = recUnique ? offers/recUnique : null;
     const offerToAcceptRate = offers ? accepts/offers : null;
 
@@ -1484,7 +1484,7 @@ function renderMediaTable() {
     totals.interviews += otherInterviews; totals.interviewsDone += otherInterviewsDone; totals.leadTotal += otherLead;
     totals.recUnique += recUnique; totals.offers += offers; totals.accepts += accepts;
 
-    const interviewToRecRate = otherInterviews ? recUnique/otherInterviews : null;
+    const interviewToRecRate = otherInterviewsDone ? recUnique/otherInterviewsDone : null; // 面談→推薦率
     const recToOfferRate = recUnique ? offers/recUnique : null;
     const offerToAcceptRate = offers ? accepts/offers : null;
 
@@ -1503,7 +1503,7 @@ function renderMediaTable() {
   }
 
   const totalReplyRate = totals.scoutTotal ? totals.leadTotal/totals.scoutTotal : null;
-  const totalInterviewToRecRate = totals.interviews ? totals.recUnique/totals.interviews : null;
+  const totalInterviewToRecRate = totals.interviewsDone ? totals.recUnique/totals.interviewsDone : null; // 面談→推薦率
   const totalRecToOfferRate = totals.recUnique ? totals.offers/totals.recUnique : null;
   const totalOfferToAcceptRate = totals.offers ? totals.accepts/totals.offers : null;
   html += '<tr style="font-weight:700;background:#f4f4f0">' +
