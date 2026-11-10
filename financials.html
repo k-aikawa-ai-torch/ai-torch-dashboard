@@ -172,7 +172,7 @@ function memberDisplayName(memberId) {
 
 let MEMBERS = [], SALES_MEMBERS = [], PIPELINE_DATA = [], CANDIDATE_DATA = [], PHASE_HISTORY = [], OTHER_REVENUE = [];
 let currentMember = '全員';
-let plSelectedMonth = new Date().toISOString().substring(0,7);
+let plSelectedMonth = today().substring(0,7); // 【バグ修正】toISOString()はUTC基準のため、毎月1日0〜9時に前月が初期表示されていた
 let checklistSortKey = 'accept_date';
 let checklistSortDir = -1;
 let checklistFilter = 'all';
