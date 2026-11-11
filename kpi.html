@@ -491,11 +491,27 @@ function sumActualRevenueForMonths(pipelineItems, candidateItems, monthList) {
   });
   return sum;
 }
-function sumGrossProfitForMonths(candidateItems, monthList) {
-  return candidateItems.reduce((s,c) => {
-    if (c.gross_profit == null || !c.gross_profit_calculated_at) return s;
-    return monthList.includes(c.gross_profit_calculated_at.substring(0,7)) ? s + c.gross_profit : s;
-  }, 0);
+// 【仕様変更】粗利の計上月を「粗利の計算日（gross_profit_calculated_at）」から「内定承諾日（pipeline_phase_history基準）」に変更。
+// 予実管理・ダッシュボードと定義を統一し、粗利の「再計算」ボタンを押しても計上月が動かないようにした。
+// 返金（出金日）は売上と同様に出金月でマイナス計上する。
+function sumGrossProfitForMonths(pipelineItems, monthList) {
+  const map = firstOccurrenceMap(pipelineItems, ACCEPT_PHASES);
+  const counted = new Set();
+  let sum = 0;
+  Object.keys(map).forEach(pid => {
+    if (!monthList.includes(map[pid].substring(0,7))) return;
+    const p = pipelineItems.find(x => x.id === pid);
+    if (!p || !p.candidate_id || counted.has(p.candidate_id)) return;
+    counted.add(p.candidate_id);
+    const c = CANDIDATE_DATA.find(x => x.id === p.candidate_id);
+    if (c && c.gross_profit != null) sum += c.gross_profit;
+  });
+  pipelineItems.forEach(p => {
+    if (!p.refund_date || !monthList.includes(p.refund_date.substring(0,7))) return;
+    const c = CANDIDATE_DATA.find(x => x.id === p.candidate_id);
+    if (c && c.gross_profit != null) sum -= c.gross_profit;
+  });
+  return sum;
 }
 
 function fmtSalary(v) { if (v==null) return '-'; return '¥' + Math.round(v).toLocaleString(); }
@@ -526,7 +542,7 @@ function computeBaseMetric(key, pipelineItems, candidateItems, month, sourceFilt
       return ids.reduce((s,mid) => { const t = TARGETS.find(t => t.member_id===mid && t.year_month===month); return s + ((t && t.recommend_actual) || 0); }, 0);
     }
     case 'revenue': return sumActualRevenueForMonths(pipelineItems, candidateItems, [month]);
-    case 'profit': return sumGrossProfitForMonths(candidateItems, [month]);
+    case 'profit': return sumGrossProfitForMonths(pipelineItems, [month]);
     case 'scout': return sourceFilter ? sumManualBySource(pipelineItems, month, 'scout_count', sourceFilter) : sumManual(pipelineItems, month, 'scout_count');
     case 'lead': return leadTotalFor(leadMemberIdsForCurrentTab(), function(ym) { return ym === month; }, sourceFilter ? function(s) { return cleanSource(s) === sourceFilter; } : function() { return true; });
     case 'withdrawal': {
